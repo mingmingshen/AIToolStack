@@ -87,18 +87,77 @@ class LogCapture:
         self.ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
         
     def write(self, message):
-        """捕获标准输出"""
+        """捕获标准输出，只捕获训练相关的日志"""
+        # 先写入原始输出
+        self.original_stdout.write(message)
+        
         if message.strip():
             # 清理ANSI转义码
             cleaned_message = self._strip_ansi_codes(message.rstrip('\n'))
             # 过滤掉空行和只包含控制字符的行
             if cleaned_message.strip():
+                # 过滤：只捕获训练相关的日志
+                if self._is_training_log(cleaned_message):
                 # 去重：如果和上一条日志相同，跳过（避免重复的进度条更新）
                 cleaned_stripped = cleaned_message.strip()
                 if cleaned_stripped != self.last_log_line:
                     self.last_log_line = cleaned_stripped
                     training_service._add_log(self.training_id, self.project_id, cleaned_message)
-        self.original_stdout.write(message)
+    
+    def _is_training_log(self, message: str) -> bool:
+        """判断是否为训练相关的日志"""
+        # 转换为小写便于匹配
+        msg_lower = message.lower()
+        
+        # 训练相关的关键词
+        training_keywords = [
+            'epoch', 'train', 'val', 'loss', 'map', 'precision', 'recall',
+            'fitness', 'yolo', 'ultralytics', 'class', 'box', 'cls', 'dfl',
+            'speed', 'images', 'labels', 'model', 'dataset', 'training',
+            'epochs', 'batch', 'imgsz', 'device', 'optimizer', 'lr0',
+            'weight', 'classes', 'dataset', 'results', 'epochs', 'patience',
+            'best', 'saved', 'results.csv', 'weights/', 'train_batch',
+            'val_batch', 'plot', 'predict', 'confusion', 'matrix',
+            # 中文关键词
+            '训练', '验证', '轮次', '批次', '损失', '模型', '数据集',
+            # 进度指示
+            'eta', 'time', 'memory', 'gpu', 'cpu'
+        ]
+        
+        # 排除不相关的日志关键词（如其他模块的日志）
+        exclude_keywords = [
+            'mqtt', 'websocket', 'http', 'api', 'route', 'database',
+            'sqlite', 'ne301', 'docker', 'mount', 'filesystem',
+            'quantization', 'export', 'download', 'upload', 'annotation',
+            # FastAPI/Uvicorn 相关
+            'uvicorn', 'started server', 'application startup',
+            'info:', 'warning:', 'error:', 'debug:',
+            # 排除纯配置信息
+            'config', 'settings', 'environment'
+        ]
+        
+        # 检查排除关键词（如果包含排除关键词且不包含训练关键词，则排除）
+        has_exclude = any(keyword in msg_lower for keyword in exclude_keywords)
+        has_training = any(keyword in msg_lower for keyword in training_keywords)
+        
+        # 如果包含排除关键词但不包含训练关键词，则不是训练日志
+        if has_exclude and not has_training:
+            return False
+        
+        # 如果包含训练关键词，则是训练日志
+        if has_training:
+            return True
+        
+        # 如果包含数字和常见训练输出格式（如进度条、百分比等），可能是训练日志
+        import re
+        # 匹配类似 "100%|████████████████| 100/100" 的进度条
+        if re.search(r'\d+%|█+|[\d/]+', message):
+            # 进一步检查是否在训练上下文中
+            if not has_exclude:
+                return True
+        
+        # 默认不捕获（严格模式，只捕获明确的训练日志）
+        return False
     
     def _strip_ansi_codes(self, text: str) -> str:
         """移除ANSI转义码"""

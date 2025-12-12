@@ -6,6 +6,9 @@ import json
 import logging
 import subprocess
 import shutil
+import time
+import threading
+import queue
 from pathlib import Path
 from typing import Dict, Optional, List, Tuple
 import os
@@ -348,7 +351,7 @@ def build_ne301_model(
         use_docker: 是否使用 Docker（否则需要本地有 NE301 开发环境）
     
     Returns:
-        编译生成的模型包路径 (build/ne301_Model.bin)，失败返回 None
+        编译并打包生成的设备可更新包路径 (build/ne301_Model_v*_pkg.bin)，如果打包失败则返回原始 .bin 文件路径，失败返回 None
     """
     ne301_project_path = Path(ne301_project_path).resolve()
     
@@ -840,7 +843,10 @@ def _build_with_docker(
             f"  exit 1; "
             f"fi && "
             f"echo '[DEBUG] All files found, proceeding with build...' && "
-            f"make model"
+            f"make model && "
+            f"echo '[NE301] Model build completed, creating update package...' && "
+            f"make pkg-model && "
+            f"echo '[NE301] Package created successfully'"
         )
         debug_info = f"Expected model files in container: /workspace/ne301/Model/weights/{model_name}.tflite and .json"
     else:
@@ -855,7 +861,10 @@ def _build_with_docker(
             f"  exit 1; "
             f"fi && "
             f"echo '[DEBUG] Model files found, proceeding with build...' && "
-            f"make model"
+            f"make model && "
+            f"echo '[NE301] Model build completed, creating update package...' && "
+            f"make pkg-model && "
+            f"echo '[NE301] Package created successfully'"
         )
         debug_info = "Expected model files in container: /workspace/ne301/Model/weights/*.tflite and *.json"
     
@@ -870,12 +879,90 @@ def _build_with_docker(
     logger.info(debug_info)
     
     try:
-        result = subprocess.run(
+        # 实时输出日志，同时捕获输出
+        result = subprocess.Popen(
             docker_cmd,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
-            timeout=600  # 10 分钟超时
+            bufsize=1,
+            universal_newlines=True
         )
+        
+        # 实时输出并收集日志
+        output_lines = []
+        logger.info("[NE301] 开始编译，实时日志如下：")
+        print("[NE301] 开始编译，实时日志如下：")
+        
+        # 使用线程或者直接读取，设置超时
+        output_queue = queue.Queue()
+        def read_output():
+            try:
+                for line in result.stdout:
+                    output_queue.put(line)
+            except Exception as e:
+                output_queue.put(f"[Error reading output] {e}")
+            finally:
+                output_queue.put(None)  # 结束标志
+        
+        reader_thread = threading.Thread(target=read_output, daemon=True)
+        reader_thread.start()
+        
+        # 读取输出并实时打印
+        timeout = 600  # 10 分钟超时
+        start_time = time.time()
+        while True:
+            try:
+                # 检查是否超时
+                elapsed = time.time() - start_time
+                if elapsed > timeout:
+                    result.terminate()
+                    result.wait()
+                    raise subprocess.TimeoutExpired(docker_cmd, timeout)
+                
+                # 非阻塞读取队列
+                try:
+                    line = output_queue.get(timeout=1.0)
+                    if line is None:
+                        break
+                    line = line.rstrip('\n\r')
+                    if line.strip():
+                        # 实时打印到控制台
+                        logger.info(f"[NE301 Build] {line}")
+                        print(f"[NE301 Build] {line}")
+                        output_lines.append(line)
+                except queue.Empty:
+                    # 检查进程是否已结束
+                    if result.poll() is not None:
+                        # 进程已结束，读取剩余输出
+                        remaining = result.stdout.read()
+                        if remaining:
+                            for line in remaining.splitlines():
+                                line = line.rstrip('\n\r')
+                                if line.strip():
+                                    logger.info(f"[NE301 Build] {line}")
+                                    print(f"[NE301 Build] {line}")
+                                    output_lines.append(line)
+                        break
+                    continue
+            except Exception as e:
+                logger.error(f"[NE301] Error reading output: {e}")
+                break
+        
+        # 等待进程完成
+        return_code = result.wait()
+        
+        # 构建完整的输出
+        full_output = '\n'.join(output_lines)
+        
+        # 创建一个类似 subprocess.CompletedProcess 的对象
+        class CompletedProcess:
+            def __init__(self, returncode, stdout, stderr=None):
+                self.returncode = returncode
+                self.stdout = stdout
+                self.stderr = stderr
+        
+        result = CompletedProcess(return_code, full_output, None)
         
         if result.returncode != 0:
             error_msg = result.stderr or result.stdout
@@ -906,26 +993,46 @@ def _build_with_docker(
             logger.error(f"Full stdout: {result.stdout[:1000]}...")  # 只显示前1000字符
             raise RuntimeError(f"NE301 模型编译失败: {error_msg_clean}")
         
-        logger.info("Docker build completed successfully")
+        logger.info("Docker build and package completed successfully")
+        print("[NE301] Build and package completed successfully")
         
-        # 检查生成的文件（可能在项目根目录的 build 目录或 Model/build 目录）
-        possible_paths = [
-            ne301_project_path / "build" / "ne301_Model.bin",
-            ne301_project_path / "Model" / "build" / "ne301_Model.bin",
-            ne301_project_path / "build" / "Model.bin",
-        ]
+        # 先查找打包后的文件（设备可更新的包，格式：*_v*_pkg.bin）
+        build_dir = ne301_project_path / "build"
+        pkg_files = []
+        if build_dir.exists():
+            # 查找所有 _pkg.bin 文件（可能是 ne301_Model_v*_pkg.bin）
+            pkg_files = list(build_dir.glob("*_pkg.bin"))
+            # 按修改时间排序，最新的在前
+            pkg_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
         
+        # 优先返回打包后的文件（设备可更新的包）
         model_bin = None
-        for path in possible_paths:
-            if path.exists():
-                model_bin = path
-                logger.info(f"Model package generated: {model_bin}")
-                break
+        if pkg_files:
+            model_bin = pkg_files[0]
+            logger.info(f"[NE301] Update package generated: {model_bin}")
+            print(f"[NE301] Update package generated: {model_bin}")
+        else:
+            # 如果没有找到打包文件，尝试查找原始的 .bin 文件
+            logger.warning("[NE301] Update package not found, checking for raw .bin file...")
+            print("[NE301] Update package not found, checking for raw .bin file...")
+            possible_paths = [
+                ne301_project_path / "build" / "ne301_Model.bin",
+                ne301_project_path / "Model" / "build" / "ne301_Model.bin",
+                ne301_project_path / "build" / "Model.bin",
+            ]
+            
+            for path in possible_paths:
+                if path.exists():
+                    model_bin = path
+                    logger.warning(f"[NE301] Found raw .bin file (packaging may have failed): {model_bin}")
+                    print(f"[NE301] Found raw .bin file (packaging may have failed): {model_bin}")
+                    break
         
         if not model_bin:
-            logger.warning(f"编译完成但未找到模型包，检查了以下路径:")
-            for path in possible_paths:
-                logger.warning(f"  - {path} (exists: {path.exists()})")
+            logger.error("[NE301] 编译完成但未找到模型包文件")
+            print("[NE301] 编译完成但未找到模型包文件")
+            logger.error("[NE301] 检查了以下路径:")
+            print("[NE301] 检查了以下路径:")
             # 列出 build 目录内容以便调试
             build_dirs = [
                 ne301_project_path / "build",
@@ -933,18 +1040,21 @@ def _build_with_docker(
             ]
             for build_dir in build_dirs:
                 if build_dir.exists():
-                    logger.info(f"Build directory contents ({build_dir}):")
+                    logger.error(f"[NE301] Build directory contents ({build_dir}):")
+                    print(f"[NE301] Build directory contents ({build_dir}):")
                     try:
                         for item in build_dir.iterdir():
-                            logger.info(f"  - {item.name} ({'file' if item.is_file() else 'dir'})")
+                            logger.error(f"[NE301]   - {item.name} ({'file' if item.is_file() else 'dir'})")
+                            print(f"[NE301]   - {item.name} ({'file' if item.is_file() else 'dir'})")
                     except Exception as e:
-                        logger.warning(f"  Error listing contents: {e}")
+                        logger.warning(f"[NE301]   Error listing contents: {e}")
             return None
         
         return model_bin
             
-    except subprocess.TimeoutExpired:
-        logger.error("Docker build 超时")
+    except subprocess.TimeoutError:
+        logger.error("[NE301] Docker build 超时")
+        print("[NE301] Docker build 超时")
         raise RuntimeError("NE301 模型编译超时（超过 10 分钟）")
     except Exception as e:
         logger.error(f"Docker build 异常: {e}")
@@ -955,30 +1065,70 @@ def _build_local(ne301_project_path: Path) -> Optional[Path]:
     """本地编译（需要安装 NE301 开发环境）"""
     ne301_project_path = Path(ne301_project_path).resolve()
     
-    # 在项目目录执行 make model
-    cmd = ["make", "model"]
-    
-    logger.info(f"Running local build: {' '.join(cmd)} in {ne301_project_path}")
-    
+    # 在项目目录执行 make model，然后 make pkg-model
+    logger.info(f"Running local build and package in {ne301_project_path}")
+    print(f"[NE301] Running local build and package in {ne301_project_path}")
+
     try:
-        result = subprocess.run(
-            cmd,
+        # 先执行 make model
+        cmd_build = ["make", "model"]
+        logger.info(f"[NE301] Step 1/2: Building model...")
+        print(f"[NE301] Step 1/2: Building model...")
+        result_build = subprocess.run(
+            cmd_build,
             cwd=str(ne301_project_path),
             capture_output=True,
             text=True,
-            timeout=600
+            timeout=600  # 10 分钟超时
         )
+
+        if result_build.returncode != 0:
+            logger.error(f"[NE301] Model build failed: {result_build.stderr or result_build.stdout}")
+            print(f"[NE301] Model build failed: {result_build.stderr or result_build.stdout}")
+            raise RuntimeError(f"NE301 模型编译失败: {result_build.stderr or result_build.stdout}")
+
+        # 再执行 make pkg-model
+        cmd_pkg = ["make", "pkg-model"]
+        logger.info(f"[NE301] Step 2/2: Creating update package...")
+        print(f"[NE301] Step 2/2: Creating update package...")
+        result_pkg = subprocess.run(
+            cmd_pkg,
+            cwd=str(ne301_project_path),
+            capture_output=True,
+            text=True,
+            timeout=300  # 5 分钟超时（打包应该很快）
+        )
+
+        if result_pkg.returncode != 0:
+            logger.warning(f"[NE301] Package creation failed: {result_pkg.stderr or result_pkg.stdout}")
+            print(f"[NE301] Package creation failed: {result_pkg.stderr or result_pkg.stdout}")
+            logger.warning("[NE301] Will try to find raw .bin file instead")
+            print("[NE301] Will try to find raw .bin file instead")
+
+        # 优先查找打包后的文件（设备可更新的包）
+        build_dir = ne301_project_path / "build"
+        pkg_files = []
+        if build_dir.exists():
+            # 查找所有 _pkg.bin 文件
+            pkg_files = list(build_dir.glob("*_pkg.bin"))
+            # 按修改时间排序，最新的在前
+            pkg_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
         
-        if result.returncode != 0:
-            logger.error(f"Local build failed: {result.stderr}")
-            raise RuntimeError(f"NE301 模型编译失败: {result.stderr}")
+        if pkg_files:
+            model_bin = pkg_files[0]
+            logger.info(f"[NE301] Update package generated: {model_bin}")
+            print(f"[NE301] Update package generated: {model_bin}")
+            return model_bin
         
-        # 检查生成的文件
+        # 如果没有找到打包文件，尝试查找原始的 .bin 文件
         model_bin = ne301_project_path / "build" / "ne301_Model.bin"
         if model_bin.exists():
+            logger.warning(f"[NE301] Found raw .bin file (packaging may have failed): {model_bin}")
+            print(f"[NE301] Found raw .bin file (packaging may have failed): {model_bin}")
             return model_bin
         else:
-            logger.warning(f"编译完成但未找到模型包: {model_bin}")
+            logger.error(f"[NE301] 编译完成但未找到模型包文件")
+            print(f"[NE301] 编译完成但未找到模型包文件")
             return None
             
     except FileNotFoundError:

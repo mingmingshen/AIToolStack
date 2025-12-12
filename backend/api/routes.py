@@ -1092,7 +1092,7 @@ def export_tflite_model(
                 )
             ne301_path = str(tflites[0])
             print(f"[NE301] quantized tflite ready: {ne301_path}")
-            
+
             # 验证文件是否真的存在
             if not Path(ne301_path).exists():
                 logger.error(f"[NE301] TFLite 文件不存在: {ne301_path}")
@@ -1448,8 +1448,7 @@ def download_tflite_export(
         filename = file_path.name
         logger.info(f"[Download] 选择文件: {file_path}")
     elif file_type == "ne301_model_bin":
-        # NE301 编译后的模型包
-        # 尝试多个可能的位置
+        # NE301 编译后的设备可更新包（优先查找打包后的 _pkg.bin 文件）
         from backend.utils.ne301_init import get_ne301_project_path
         try:
             ne301_project_path = get_ne301_project_path()
@@ -1458,22 +1457,37 @@ def download_tflite_export(
         
         logger.info(f"[Download] 查找 NE301 模型包，项目路径: {ne301_project_path}")
         
-        possible_paths = [
-            ne301_project_path / "build" / "ne301_Model.bin",
-            ne301_project_path / "Model" / "build" / "ne301_Model.bin",
-            ne301_project_path / "build" / "Model.bin",
-        ]
-        
+        # 优先查找打包后的设备可更新包（格式：*_v*_pkg.bin）
+        build_dir = ne301_project_path / "build"
         model_bin_path = None
-        for path in possible_paths:
-            if path.exists():
-                model_bin_path = path
-                logger.info(f"[Download] 找到模型包: {model_bin_path}")
-                break
+        
+        if build_dir.exists():
+            # 查找所有 _pkg.bin 文件（设备可更新的包）
+            pkg_files = list(build_dir.glob("*_pkg.bin"))
+            if pkg_files:
+                # 按修改时间排序，选择最新的
+                pkg_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+                model_bin_path = pkg_files[0]
+                logger.info(f"[Download] 找到设备可更新包: {model_bin_path}")
+        
+        # 如果没有找到打包文件，尝试查找原始的 .bin 文件
+        if not model_bin_path:
+            possible_paths = [
+                ne301_project_path / "build" / "ne301_Model.bin",
+                ne301_project_path / "Model" / "build" / "ne301_Model.bin",
+                ne301_project_path / "build" / "Model.bin",
+            ]
+            
+            for path in possible_paths:
+                if path.exists():
+                    model_bin_path = path
+                    logger.info(f"[Download] 找到原始模型包（未打包）: {model_bin_path}")
+                    logger.warning(f"[Download] 注意：这是原始的 .bin 文件，不是设备可更新的包格式")
+                    break
         
         if not model_bin_path:
-            logger.error(f"[Download] 模型包未找到，已尝试路径: {possible_paths}")
-            raise HTTPException(status_code=404, detail=f"NE301 model package not found. Searched in: {[str(p) for p in possible_paths]}")
+            logger.error(f"[Download] 模型包未找到，已尝试查找打包文件（*_pkg.bin）和原始文件")
+            raise HTTPException(status_code=404, detail=f"NE301 model package not found in {build_dir}")
         
         file_path = model_bin_path
         filename = model_bin_path.name

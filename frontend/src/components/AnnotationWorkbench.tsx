@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ToolsBar } from './ToolsBar';
 import { AnnotationCanvas } from './AnnotationCanvas';
 import { ControlPanel } from './ControlPanel';
@@ -24,6 +25,7 @@ interface Project {
 interface AnnotationWorkbenchProps {
   project: Project;
   onBack: () => void;
+  onOpenTraining?: (projectId: string) => void;
 }
 
 export type ToolType = 'select' | 'bbox' | 'polygon' | 'keypoint';
@@ -55,8 +57,10 @@ export interface Class {
 
 export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
   project,
-  onBack
+  onBack,
+  onOpenTraining
 }) => {
+  const { t } = useTranslation();
   const [currentTool, setCurrentTool] = useState<ToolType>('select');
   const [images, setImages] = useState<ImageInfo[]>([]);
   const [currentImageIndex, setCurrentImageIndex] = useState<number>(-1);
@@ -404,8 +408,8 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
         });
         
         if (!exportResponse.ok) {
-          const errorData = await exportResponse.json().catch(() => ({ detail: '导出失败' }));
-          throw new Error(errorData.detail || '导出失败');
+          const errorData = await exportResponse.json().catch(() => ({ detail: t('common.exportFailed', '导出失败') }));
+          throw new Error(errorData.detail || t('common.exportFailed', '导出失败'));
         }
         
         // 等待一下确保文件已生成
@@ -430,8 +434,8 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
         // 导出数据集 zip 包
         const downloadResponse = await fetch(`${API_BASE_URL}/projects/${project.id}/export/zip`);
         if (!downloadResponse.ok) {
-          const errorData = await downloadResponse.json().catch(() => ({ detail: '导出失败' }));
-          throw new Error(errorData.detail || '导出失败');
+          const errorData = await downloadResponse.json().catch(() => ({ detail: t('common.exportFailed', '导出失败') }));
+          throw new Error(errorData.detail || t('common.exportFailed', '导出失败'));
         }
         
         const blob = await downloadResponse.blob();
@@ -445,7 +449,7 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
         document.body.removeChild(a);
       }
     } catch (error: any) {
-      alert(`导出失败: ${error.message}`);
+      alert(`${t('common.exportFailed', '导出失败')}: ${error.message}`);
     } finally {
       setIsExporting(false);
     }
@@ -456,9 +460,10 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
       <div className="workbench-header">
         <div className="header-left">
           <button onClick={onBack} className="btn-back">
-            <Icon component={IoArrowBack} /> 返回项目
+            <Icon component={IoArrowBack} /> {t('annotation.backToProjects')}
           </button>
           <h2>{project.name}</h2>
+          <span className="workbench-subtitle">{t('annotation.subtitle', '图像标注工作台')}</span>
         </div>
         <div className="header-right">
           <div className="header-info">
@@ -476,9 +481,15 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
           
           <button
             className="btn-export"
-            onClick={() => setShowTrainingPanel(true)}
+            onClick={() => {
+              if (onOpenTraining) {
+                onOpenTraining(project.id);
+              } else {
+                setShowTrainingPanel(true);
+              }
+            }}
           >
-            训练模型
+            {t('annotation.trainModel')}
           </button>
           
           <div className="export-dropdown" ref={exportMenuRef}>
@@ -488,7 +499,7 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
               disabled={isExporting}
             >
               <Icon component={IoDownload} />
-              <span>{isExporting ? '导出中...' : '导出数据集'}</span>
+              <span>{isExporting ? t('annotation.exporting') : t('annotation.exportDataset')}</span>
               <Icon component={IoChevronDown} />
             </button>
             
@@ -499,14 +510,14 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
                   onClick={() => handleExportDataset('yolo')}
                   disabled={isExporting}
                 >
-                  导出YOLO训练数据集
+                  {t('annotation.exportYOLO')}
                 </button>
                 <button
                   className="dropdown-item"
                   onClick={() => handleExportDataset('zip')}
                   disabled={isExporting}
                 >
-                  导出标注ZIP 包
+                  {t('annotation.exportZIP')}
                 </button>
               </div>
             )}
@@ -522,7 +533,6 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
 
         <div className="canvas-container">
           {currentImage ? (
-            <>
               <AnnotationCanvas
                 image={currentImage}
                 annotations={annotations}
@@ -546,11 +556,10 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
                 onAnnotationSelect={setSelectedAnnotationId}
                 projectId={project.id}
               />
-              <ShortcutHelper />
-            </>
           ) : (
-            <div className="no-image">暂无图像</div>
+            <div className="no-image">{t('annotation.noImages')}</div>
           )}
+          <ShortcutHelper />
         </div>
 
         <ControlPanel

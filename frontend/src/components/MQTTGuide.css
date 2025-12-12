@@ -237,8 +237,9 @@
 }
 
 .btn-test-mqtt svg {
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
 }
 
 .test-result {
@@ -389,8 +390,9 @@
 }
 
 .btn-copy svg {
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
 }
 
 .copied-tooltip {

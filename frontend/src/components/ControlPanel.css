@@ -126,8 +126,9 @@
 }
 
 .annotation-delete-btn svg {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
 }
 
 .annotation-delete-btn:hover {
@@ -309,15 +310,24 @@
 
 .btn-create-class {
   width: 100%;
-  padding: 8px;
+  height: var(--btn-height-md);
+  min-height: var(--btn-height-md);
+  padding: var(--btn-padding-md);
   background: var(--primary-color);
   border: none;
   border-radius: 4px;
   color: var(--text-white);
-  font-size: 13px;
+  font-size: var(--btn-font-size);
+  line-height: var(--btn-line-height);
   cursor: pointer;
   transition: all 0.2s;
   font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  box-sizing: border-box;
 }
 
 .btn-create-class:hover {
@@ -396,7 +406,7 @@
 
 .file-delete-btn {
   margin-left: auto;
-  padding: 4px 8px;
+  padding: 0;
   background: transparent;
   border: 1px solid var(--border-color);
   border-radius: 4px;
@@ -406,14 +416,20 @@
   transition: all 0.2s;
   flex-shrink: 0;
   opacity: 0.7;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  box-sizing: border-box;
 }
 
 .file-delete-btn svg {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
 }
 
 .file-delete-btn:hover {
@@ -442,16 +458,24 @@
 }
 
 .btn-upload {
-  padding: 6px 12px;
+  height: var(--btn-height-sm);
+  min-height: var(--btn-height-sm);
+  padding: var(--btn-padding-sm);
   background: var(--primary-color);
   border: none;
   border-radius: 4px;
   color: var(--text-white);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--btn-font-size);
+  line-height: var(--btn-line-height);
   font-weight: 500;
   transition: all 0.2s;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
 }
 
 .btn-upload:hover:not(:disabled) {

@@ -1,0 +1,100 @@
+.language-switcher {
+  position: relative;
+  display: inline-block;
+}
+
+.language-dropdown {
+  position: relative;
+}
+
+.language-btn {
+  height: var(--btn-height-sm);
+  min-height: var(--btn-height-sm);
+  padding: var(--btn-padding-sm);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: var(--btn-font-size);
+  line-height: var(--btn-line-height);
+  font-weight: 500;
+  transition: all 0.2s;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+}
+
+.language-btn:hover {
+  background: var(--bg-secondary);
+  border-color: var(--accent-color);
+}
+
+.language-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--accent-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.language-label {
+  min-width: 60px;
+  text-align: left;
+}
+
+.language-chevron {
+  width: 16px;
+  height: 16px;
+  transition: transform 0.2s;
+  flex-shrink: 0;
+  color: var(--text-light);
+}
+
+.language-chevron.open {
+  transform: rotate(180deg);
+}
+
+.language-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  min-width: 120px;
+  z-index: 1000;
+  overflow: hidden;
+}
+
+.language-dropdown-item {
+  display: block;
+  width: 100%;
+  padding: 10px 16px;
+  background: transparent;
+  border: none;
+  text-align: left;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.2s;
+}
+
+.language-dropdown-item:hover {
+  background: var(--bg-secondary);
+}
+
+.language-dropdown-item.active {
+  background: rgba(235, 129, 79, 0.1);
+  color: var(--accent-color);
+  font-weight: 500;
+}
+
+.language-dropdown-item:not(:last-child) {
+  border-bottom: 1px solid var(--border-color);
+}

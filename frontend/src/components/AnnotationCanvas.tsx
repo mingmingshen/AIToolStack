@@ -281,7 +281,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     if (showAnnotations) {
       annotations.forEach((ann) => {
         const classObj = classes.find(c => c.id === ann.classId);
-        const color = classObj?.color || '#4a9eff';
+        const color = classObj?.color || '#EB814F';
         const isSelected = ann.id === selectedAnnotationId;
 
         ctx.strokeStyle = isSelected ? '#ffff00' : color;
@@ -441,7 +441,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
       polygonPoints.forEach((point, index) => {
         const x = point.x * scale + offset.x;
         const y = point.y * scale + offset.y;
-        ctx.fillStyle = index === 0 ? '#ffff00' : '#4a9eff'; // 起点用黄色高亮
+        ctx.fillStyle = index === 0 ? '#ffff00' : '#EB814F'; // 起点用黄色高亮
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 2; // 增加边框宽度
         ctx.beginPath();
@@ -451,7 +451,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
       });
       
       // 在鼠标位置显示预览点
-      ctx.fillStyle = '#4a9eff';
+      ctx.fillStyle = '#EB814F';
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 1;
       ctx.setLineDash([]);
@@ -466,7 +466,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
       keypoints.forEach((point) => {
         const x = point.x * scale + offset.x;
         const y = point.y * scale + offset.y;
-        ctx.fillStyle = '#4a9eff';
+        ctx.fillStyle = '#EB814F';
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 2;
         ctx.beginPath();

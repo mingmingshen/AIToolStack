@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Annotation, ImageInfo, Class } from './AnnotationWorkbench';
 import { API_BASE_URL } from '../config';
 import { IoTrash } from 'react-icons/io5';
@@ -44,8 +45,9 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   onImageUpload,
   onImageDelete
 }) => {
+  const { t } = useTranslation();
   const [newClassName, setNewClassName] = useState('');
-  const [newClassColor, setNewClassColor] = useState('#4a9eff');
+  const [newClassColor, setNewClassColor] = useState('#EB814F');
   const [isUploading, setIsUploading] = useState(false);
   const [isDeleting, setIsDeleting] = useState<number | null>(null);
   const [uploadProgress, setUploadProgress] = useState<{
@@ -71,11 +73,11 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
       '#52BE80', '#1ABC9C', '#16A085', '#27AE60', '#2ECC71',
       '#4CAF50', '#8BC34A', '#66BB6A', '#81C784', '#A5D6A7',
       // 青色/蓝绿色系
-      '#4ECDC4', '#45B7D1', '#1ABC9C', '#16A085', '#00BCD4',
+      '#EB814F', '#d46a2f', '#f59a6b', '#ffb891', '#ffc9a8',
       '#00ACC1', '#0097A7', '#00838F', '#26C6DA', '#4DD0E1',
       // 蓝色系
-      '#3498DB', '#2980B9', '#45B7D1', '#5DADE2', '#85C1E2',
-      '#2196F3', '#1976D2', '#0D47A1', '#42A5F5', '#64B5F6',
+      '#0A0D16', '#1a1d26', '#2a2d36', '#3a3d46', '#4a4d56',
+      '#EB814F', '#d46a2f', '#c55a1f', '#f59a6b', '#ffb891',
       // 紫色系
       '#9B59B6', '#8E44AD', '#BB8FCE', '#7B1FA2', '#6A1B9A',
       '#9C27B0', '#8E24AA', '#AB47BC', '#BA68C8', '#CE93D8',
@@ -97,7 +99,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
       // 特殊色系
       '#00E676', '#00C853', '#76FF03', '#C6FF00', '#FFEA00',
       '#FFC400', '#FF9100', '#FF3D00', '#D50000', '#C51162',
-      '#AA00FF', '#6200EA', '#304FFE', '#2962FF', '#0091EA',
+      '#EB814F', '#d46a2f', '#0A0D16', '#1a1d26', '#f59a6b',
       '#00B8D4', '#00BFA5', '#00C853', '#64DD17', '#AEEA00',
       '#FFD600', '#FFAB00', '#FF6D00', '#DD2C00', '#D50000'
     ];
@@ -107,7 +109,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   const handleDeleteImage = async (imageId: number, event: React.MouseEvent) => {
     event.stopPropagation(); // 阻止触发图片选择
     
-    if (!window.confirm('确定要删除这张图片吗？删除后无法恢复。')) {
+    if (!window.confirm(t('annotation.deleteImageConfirm'))) {
       return;
     }
     
@@ -119,7 +121,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
       
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || '删除失败');
+        throw new Error(error.detail || t('annotation.deleteFailed'));
       }
       
       // 通知父组件刷新图片列表
@@ -127,7 +129,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         onImageDelete();
       }
     } catch (error: any) {
-      alert(`删除失败: ${error.message}`);
+      alert(`${t('annotation.deleteFailed')}: ${error.message}`);
     } finally {
       setIsDeleting(null);
     }
@@ -148,9 +150,9 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     
     fileArray.forEach(file => {
     if (!allowedTypes.includes(file.type)) {
-        invalidFiles.push(`${file.name}（格式不支持）`);
+        invalidFiles.push(`${file.name}（${t('annotation.fileTypeNotSupported')}）`);
       } else if (file.size > maxSize) {
-        invalidFiles.push(`${file.name}（超过 ${maxSize / 1024 / 1024}MB）`);
+        invalidFiles.push(`${file.name}（${t('annotation.fileTooLarge', { size: maxSize / 1024 / 1024 })}）`);
       } else {
         validFiles.push(file);
       }
@@ -158,7 +160,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
     // 显示无效文件提示
     if (invalidFiles.length > 0) {
-      alert(`以下文件无法上传：\n${invalidFiles.join('\n')}\n\n将跳过这些文件，继续上传其他有效文件。`);
+      alert(`${t('annotation.invalidFiles')}：\n${invalidFiles.join('\n')}\n\n${t('annotation.skipInvalidFiles')}`);
     }
 
     if (validFiles.length === 0) {
@@ -224,13 +226,13 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
     if (successCount > 0 && failCount === 0) {
       // 全部成功
-      alert(`成功上传 ${successCount} 张图片`);
+      alert(t('annotation.uploadSuccess', { count: successCount }));
     } else if (successCount > 0 && failCount > 0) {
       // 部分成功
-      alert(`上传完成：成功 ${successCount} 张，失败 ${failCount} 张\n\n失败详情：\n${errors.join('\n')}`);
+      alert(`${t('annotation.uploadPartial', { success: successCount, fail: failCount })}\n\n${t('common.errorDetails', '失败详情')}：\n${errors.join('\n')}`);
     } else {
       // 全部失败
-      alert(`上传失败（${failCount} 张）：\n${errors.join('\n')}`);
+      alert(`${t('annotation.uploadAllFailed', { count: failCount })}\n${errors.join('\n')}`);
     }
   };
 
@@ -240,7 +242,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
   const handleCreateClass = async () => {
     if (!newClassName.trim()) {
-      alert('请输入类别名称');
+      alert(t('annotation.classNameRequired'));
       return;
     }
 
@@ -261,11 +263,11 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         setNewClassColor(generateRandomColor()); // 重置为随机颜色
         onCreateClass();
       } else {
-        alert('创建类别失败');
+        alert(t('annotation.createClassFailed'));
       }
     } catch (error) {
       console.error('Failed to create class:', error);
-      alert('创建类别失败');
+      alert(t('annotation.createClassFailed'));
     }
   };
 
@@ -275,7 +277,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     const classToDelete = classes.find(c => c.id === classId);
     if (!classToDelete) return;
     
-    if (!window.confirm(`确定要删除类别"${classToDelete.name}"吗？如果该类别已被使用，将无法删除。`)) {
+    if (!window.confirm(t('annotation.deleteClassConfirm', { name: classToDelete.name }))) {
       return;
     }
     
@@ -286,12 +288,12 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
       
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || '删除失败');
+        throw new Error(error.detail || t('annotation.deleteFailed'));
       }
       
       onCreateClass(); // 刷新类别列表
     } catch (error: any) {
-      alert(`删除类别失败: ${error.message}`);
+      alert(`${t('annotation.deleteClassFailed')}: ${error.message}`);
     }
   };
 
@@ -302,9 +304,9 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         <div className="panel-left-column">
           {/* 类别管理 */}
           <div className="class-palette">
-            <h3>标注类别 ({classes.length})</h3>
+            <h3>{t('annotation.classes')} ({classes.length})</h3>
             {classes.length === 0 ? (
-              <div className="empty-state">请创建一个类别</div>
+              <div className="empty-state">{t('annotation.noClasses')}</div>
             ) : (
               <div className="class-list">
                 {classes.map((cls, index) => {
@@ -327,7 +329,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                       <button
                         className="class-delete-btn"
                         onClick={(e) => handleDeleteClass(cls.id, e)}
-                        title="删除类别"
+                        title={t('annotation.deleteClass')}
                       >
                         <Icon component={IoTrash} />
                       </button>
@@ -337,10 +339,10 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               </div>
             )}
             <div className="create-class">
-              <h4>创建新类别</h4>
+              <h4>{t('annotation.createClass')}</h4>
               <input
                 type="text"
-                placeholder="类别名称"
+                placeholder={t('annotation.className')}
                 value={newClassName}
                 onChange={(e) => setNewClassName(e.target.value)}
                 className="class-input"
@@ -360,16 +362,16 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 />
               </div>
               <button onClick={handleCreateClass} className="btn-create-class">
-                创建
+                {t('common.create', '创建')}
               </button>
             </div>
           </div>
 
           {/* 标注列表 */}
           <div className="object-list">
-            <h3>标注列表 ({annotations.length})</h3>
+            <h3>{t('annotation.annotations')} ({annotations.length})</h3>
             {annotations.length === 0 ? (
-              <div className="empty-state">暂无标注</div>
+              <div className="empty-state">{t('common.noData', '暂无数据')}</div>
             ) : (
               <div className="annotation-items">
                 {annotations.map((ann) => {
@@ -397,11 +399,11 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                           className="annotation-delete-btn"
                           onClick={(e) => {
                             e.stopPropagation();
-                            if (ann.id && window.confirm('确定要删除这个标注吗？')) {
+                            if (ann.id && window.confirm(t('annotation.deleteConfirm', '确定要删除这个标注吗？'))) {
                               onAnnotationDelete(ann.id);
                             }
                           }}
-                          title="删除标注"
+                          title={t('annotation.delete')}
                         >
                           <Icon component={IoTrash} />
                         </button>
@@ -419,10 +421,10 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           <div className="file-navigator">
             <div className="file-header">
               <div style={{ flex: 1 }}>
-              <h3>图像列表 ({images.length})</h3>
+              <h3>{t('annotation.images')} ({images.length})</h3>
                 {uploadProgress && (
                   <div className="upload-progress-info">
-                    正在上传: {uploadProgress.currentFileName} ({uploadProgress.current}/{uploadProgress.total})
+                    {t('annotation.uploading')}: {uploadProgress.currentFileName} ({uploadProgress.current}/{uploadProgress.total})
                   </div>
                 )}
               </div>
@@ -430,14 +432,14 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 onClick={handleUploadClick}
                 disabled={isUploading}
                 className="btn-upload"
-                title="上传图像（支持批量选择）"
+                title={t('annotation.uploadImages')}
               >
                 {isUploading && uploadProgress ? (
-                  `上传中 (${uploadProgress.current}/${uploadProgress.total})...`
+                  `${t('annotation.uploading')} (${uploadProgress.current}/${uploadProgress.total})...`
                 ) : isUploading ? (
-                  '上传中...'
+                  t('annotation.uploading')
                 ) : (
-                  '上传图片'
+                  t('annotation.uploadImages')
                 )}
               </button>
               <input
@@ -474,7 +476,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                       className="file-delete-btn"
                       onClick={(e) => handleDeleteImage(img.id, e)}
                       disabled={isDeletingThis}
-                      title="删除图片"
+                      title={t('annotation.deleteImage')}
                     >
                       {isDeletingThis ? '...' : <Icon component={IoTrash} />}
                     </button>

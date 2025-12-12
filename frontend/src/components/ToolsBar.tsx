@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { ToolType } from './AnnotationWorkbench';
 import { IoHandLeftOutline, IoSquareOutline, IoShapesOutline, IoLocationOutline } from 'react-icons/io5';
 import './ToolsBar.css';
@@ -14,11 +15,12 @@ const Icon: React.FC<{ component: React.ComponentType<any> }> = ({ component: Co
 };
 
 export const ToolsBar: React.FC<ToolsBarProps> = ({ currentTool, onToolChange }) => {
+  const { t } = useTranslation();
   const tools: Array<{ type: ToolType; label: string; icon: React.ReactNode; shortcut: string }> = [
-    { type: 'select', label: '选择', icon: <Icon component={IoHandLeftOutline} />, shortcut: 'V' },
-    { type: 'bbox', label: '矩形框', icon: <Icon component={IoSquareOutline} />, shortcut: 'R' },
-    { type: 'polygon', label: '多边形', icon: <Icon component={IoShapesOutline} />, shortcut: 'P' },
-    { type: 'keypoint', label: '关键点', icon: <Icon component={IoLocationOutline} />, shortcut: 'K' },
+    { type: 'select', label: t('annotation.toolSelect'), icon: <Icon component={IoHandLeftOutline} />, shortcut: 'V' },
+    { type: 'bbox', label: t('annotation.toolRectangle'), icon: <Icon component={IoSquareOutline} />, shortcut: 'R' },
+    { type: 'polygon', label: t('annotation.toolPolygon'), icon: <Icon component={IoShapesOutline} />, shortcut: 'P' },
+    { type: 'keypoint', label: t('annotation.toolKeypoint'), icon: <Icon component={IoLocationOutline} />, shortcut: 'K' },
   ];
 
   return (

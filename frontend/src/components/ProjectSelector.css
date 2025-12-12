@@ -1,17 +1,14 @@
 .project-selector {
   width: 100%;
-  height: 100%;
+  min-height: calc(100vh - 64px);
   display: flex;
   flex-direction: column;
-  background: var(--bg-primary);
+  background: transparent;
   color: var(--text-primary);
-  padding: 40px;
-  overflow-y: auto;
 }
 
 .project-selector-header {
-  text-align: center;
-  margin-bottom: 40px;
+  display: none; /* 隐藏原header，因为现在有顶部导航栏 */
 }
 
 .project-selector-header h1 {
@@ -26,16 +23,21 @@
 }
 
 .project-selector-content {
-  max-width: 1200px;
+  max-width: 1400px;
   margin: 0 auto;
   width: 100%;
+  background: var(--bg-primary);
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
 .project-list-section {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 30px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  text-align: initial;
 }
 
 .section-header {
@@ -73,8 +75,9 @@
 
 .btn-secondary svg,
 .btn-create svg {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
 }
 
 .btn-primary {
@@ -107,10 +110,17 @@
 }
 
 .btn-create {
+  height: var(--btn-height-lg);
+  min-height: var(--btn-height-lg);
+  padding: var(--btn-padding-lg);
   background: var(--primary-color);
   color: var(--text-white);
   font-weight: 600;
-  padding: 10px 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
 }
 
 .btn-create:hover {
@@ -124,20 +134,24 @@
   border: none;
   color: var(--text-light);
   cursor: pointer;
-  font-size: 18px;
-  padding: 4px 8px;
+  font-size: 25px;
+  padding: 0;
   border-radius: 4px;
   transition: all 0.2s;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 32px;
   height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  box-sizing: border-box;
 }
 
 .btn-delete svg {
   width: 18px;
   height: 18px;
+  flex-shrink: 0;
 }
 
 .btn-delete:hover {
@@ -147,15 +161,24 @@
 }
 
 .btn-danger {
+  height: var(--btn-height-lg);
+  min-height: var(--btn-height-lg);
+  padding: var(--btn-padding-lg);
   background: var(--error-color);
   color: var(--text-white);
-  padding: 10px 20px;
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--btn-font-size);
+  line-height: var(--btn-line-height);
   font-weight: 500;
   transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  box-sizing: border-box;
 }
 
 .btn-danger:hover:not(:disabled) {
@@ -212,6 +235,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .project-status {
@@ -258,14 +282,19 @@
 }
 
 .empty-state {
-  grid-column: 1 / -1;
-  text-align: center;
+  width: 100%;
+  text-align: center !important;
   color: var(--text-light);
-  padding: 60px 40px;
-  display: flex;
+  padding: 80px 40px;
+  display: flex !important;
   flex-direction: column;
-  align-items: center;
-  gap: 20px;
+  align-items: center !important;
+  justify-content: center;
+  gap: 24px;
+  border: none;
+  background: transparent;
+  margin: 0 auto;
+  max-width: 100%;
 }
 
 .empty-icon {

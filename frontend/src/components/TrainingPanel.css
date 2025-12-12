@@ -1,6 +1,6 @@
 .training-panel-overlay {
   position: fixed;
-  top: 0;
+  top: 64px;
   left: 0;
   right: 0;
   bottom: 0;
@@ -8,13 +8,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10000;
+  z-index: 9999;
 }
 
 .training-panel-fullscreen {
   background: var(--bg-primary);
   width: calc(100vw - 40px);
-  height: calc(100vh - 40px);
+  height: calc(100vh - 104px);
   max-width: none;
   max-height: none;
   display: flex;
@@ -101,17 +101,23 @@
 }
 
 .btn-new-training {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
+  height: var(--btn-height-sm);
+  min-height: var(--btn-height-sm);
+  padding: var(--btn-padding-sm);
   background: var(--primary-color);
   border: none;
   border-radius: 4px;
   color: white;
-  font-size: 12px;
+  font-size: var(--btn-font-size);
+  line-height: var(--btn-line-height);
   cursor: pointer;
   transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  box-sizing: border-box;
 }
 
 .btn-new-training:hover:not(:disabled) {
@@ -184,8 +190,8 @@
 }
 
 .record-status.status-completed {
-  background: rgba(33, 150, 243, 0.2);
-  color: #2196F3;
+  background: rgba(10, 13, 22, 0.1);
+  color: var(--primary-color);
 }
 
 .record-status.status-failed {
@@ -212,7 +218,7 @@
   color: var(--primary-color);
   font-weight: 500;
   padding: 2px 8px;
-  background: rgba(var(--primary-color-rgb, 74, 158, 255), 0.1);
+  background: rgba(10, 13, 22, 0.1);
   border-radius: 4px;
 }
 
@@ -283,17 +289,23 @@
 }
 
 .btn-export-model {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
+  height: var(--btn-height-md);
+  min-height: var(--btn-height-md);
+  padding: var(--btn-padding-md);
   background: var(--primary-color);
   border: none;
   border-radius: 4px;
   color: white;
-  font-size: 13px;
+  font-size: var(--btn-font-size);
+  line-height: var(--btn-line-height);
   cursor: pointer;
   transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  box-sizing: border-box;
 }
 
 .btn-export-model:hover {
@@ -346,7 +358,7 @@
 }
 
 .status-completed {
-  color: #2196F3;
+  color: var(--primary-color);
   font-weight: 500;
 }
 
@@ -378,8 +390,8 @@
 .model-path {
   margin-top: 16px;
   padding: 12px 16px;
-  background: rgba(33, 150, 243, 0.1);
-  border: 1px solid rgba(33, 150, 243, 0.3);
+  background: rgba(10, 13, 22, 0.1);
+  border: 1px solid rgba(10, 13, 22, 0.3);
   border-radius: 4px;
   font-size: 13px;
   color: var(--text-primary);
@@ -429,7 +441,7 @@
 
 .metric-item:hover {
   border-color: var(--primary-color);
-  background: rgba(var(--primary-color-rgb, 74, 158, 255), 0.05);
+  background: rgba(10, 13, 22, 0.05);
 }
 
 .metric-label {
@@ -452,14 +464,23 @@
 
 .btn-stop-training {
   flex: 1;
-  padding: 10px;
+  height: var(--btn-height-lg);
+  min-height: var(--btn-height-lg);
+  padding: var(--btn-padding-lg);
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
   border-radius: 4px;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--btn-font-size);
+  line-height: var(--btn-line-height);
   cursor: pointer;
   transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  box-sizing: border-box;
 }
 
 .btn-stop-training:hover {
@@ -613,16 +634,25 @@
 
 .btn-start-training {
   width: 100%;
-  padding: 12px;
+  height: var(--btn-height-lg);
+  min-height: var(--btn-height-lg);
+  padding: var(--btn-padding-lg);
   background: var(--primary-color);
   border: none;
   border-radius: 4px;
   color: var(--text-white);
-  font-size: 14px;
+  font-size: var(--btn-font-size);
+  line-height: var(--btn-line-height);
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
   margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  box-sizing: border-box;
 }
 
 .btn-start-training:hover:not(:disabled) {
@@ -719,14 +749,23 @@
 }
 
 .btn-cancel {
-  padding: 10px 20px;
+  height: var(--btn-height-lg);
+  min-height: var(--btn-height-lg);
+  padding: var(--btn-padding-lg);
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
   border-radius: 4px;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--btn-font-size);
+  line-height: var(--btn-line-height);
   cursor: pointer;
   transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  box-sizing: border-box;
 }
 
 .btn-cancel:hover:not(:disabled) {
@@ -741,39 +780,49 @@
 
 /* 测试模型相关样式 */
 .btn-test-model {
-  padding: 8px 16px;
+  height: var(--btn-height-md);
+  min-height: var(--btn-height-md);
+  padding: var(--btn-padding-md);
   background: var(--primary-color);
   color: white;
   border: none;
   border-radius: 4px;
-  font-size: 13px;
+  font-size: var(--btn-font-size);
+  line-height: var(--btn-line-height);
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
   transition: all 0.2s;
+  box-sizing: border-box;
 }
 
 .btn-test-model:hover {
-  background: var(--primary-color-hover, #1976d2);
+  background: var(--primary-hover);
 }
 
 .btn-quant-model {
-  padding: 8px 16px;
+  height: var(--btn-height-md);
+  min-height: var(--btn-height-md);
+  padding: var(--btn-padding-md);
   background: var(--primary-color);
   color: white;
   border: none;
   border-radius: 4px;
-  font-size: 13px;
+  font-size: var(--btn-font-size);
+  line-height: var(--btn-line-height);
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
+  box-sizing: border-box;
   transition: all 0.2s;
 }
 
 .btn-quant-model:hover {
-  background: var(--primary-color-hover, #1976d2);
+  background: var(--primary-hover);
 }
 
 .test-modal {
@@ -858,7 +907,7 @@
 
 .test-upload-area:hover {
   border-color: var(--primary-color);
-  background: rgba(var(--primary-color-rgb, 33, 150, 243), 0.05);
+  background: rgba(10, 13, 22, 0.05);
 }
 
 .test-upload-placeholder {
@@ -1032,7 +1081,7 @@
 
 .detection-item:hover {
   border-color: var(--primary-color);
-  background: rgba(var(--primary-color-rgb, 33, 150, 243), 0.05);
+  background: rgba(10, 13, 22, 0.05);
 }
 
 .detection-class {
@@ -1119,7 +1168,7 @@
 
 .quant-file-item:hover {
   border-color: var(--primary-color);
-  background: rgba(var(--primary-color-rgb, 74, 158, 255), 0.05);
+  background: rgba(10, 13, 22, 0.05);
 }
 
 .quant-file-item.model-package {
@@ -1159,19 +1208,24 @@
 }
 
 .btn-download-file {
-  display: flex;
+  height: var(--btn-height-md);
+  min-height: var(--btn-height-md);
+  padding: var(--btn-padding-md);
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 8px 16px;
+  white-space: nowrap;
+  box-sizing: border-box;
   background: var(--primary-color);
   border: none;
   border-radius: 4px;
   color: white;
-  font-size: 13px;
+  font-size: var(--btn-font-size);
+  line-height: var(--btn-line-height);
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
-  white-space: nowrap;
   flex-shrink: 0;
 }
 

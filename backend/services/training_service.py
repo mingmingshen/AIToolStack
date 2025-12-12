@@ -98,11 +98,11 @@ class LogCapture:
             if cleaned_message.strip():
                 # 过滤：只捕获训练相关的日志
                 if self._is_training_log(cleaned_message):
-                # 去重：如果和上一条日志相同，跳过（避免重复的进度条更新）
-                cleaned_stripped = cleaned_message.strip()
-                if cleaned_stripped != self.last_log_line:
-                    self.last_log_line = cleaned_stripped
-                    training_service._add_log(self.training_id, self.project_id, cleaned_message)
+                    # 去重：如果和上一条日志相同，跳过（避免重复的进度条更新）
+                    cleaned_stripped = cleaned_message.strip()
+                    if cleaned_stripped != self.last_log_line:
+                        self.last_log_line = cleaned_stripped
+                        training_service._add_log(self.training_id, self.project_id, cleaned_message)
     
     def _is_training_log(self, message: str) -> bool:
         """判断是否为训练相关的日志"""
@@ -133,7 +133,10 @@ class LogCapture:
             'uvicorn', 'started server', 'application startup',
             'info:', 'warning:', 'error:', 'debug:',
             # 排除纯配置信息
-            'config', 'settings', 'environment'
+            'config', 'settings', 'environment',
+            # MQTT Broker 相关错误（aMQTT 内部异常，不应显示在训练日志中）
+            'brokerprotocolhandler', 'unhandled exception', 'reader coro',
+            'timeouterror', 'timeout error'
         ]
         
         # 检查排除关键词（如果包含排除关键词且不包含训练关键词，则排除）
@@ -445,26 +448,46 @@ class TrainingService:
                 self._add_log(training_id, project_id, "-" * 60)
                 
                 # 加载预训练模型（ultralytics 会自动处理下载）
-                model_name = f'yolov8{model_size}.pt'
-                self._add_log(training_id, project_id, f"正在加载预训练模型: {model_name}")
+                # 使用模型名称（如 'yolov8n'）而不是文件名（'yolov8n.pt'），
+                # 这样 ultralytics 会自动从 GitHub 下载权重文件
+                model_name_str = f'yolov8{model_size}'
+                model_file_name = f'yolov8{model_size}.pt'
+                self._add_log(training_id, project_id, f"正在加载预训练模型: {model_file_name}")
                 
                 try:
-                    model = YOLO(model_name)
+                    # 使用模型名称字符串，ultralytics 会自动下载权重
+                    model = YOLO(model_name_str)
                     self._add_log(training_id, project_id, "模型加载成功")
                 except Exception as e:
                     error_msg = str(e)
                     # 如果是网络相关错误，提供友好的提示
-                    if any(keyword in error_msg.lower() for keyword in ['download', 'connection', 'ssl', 'url', 'network']):
-                        download_url = f"https://github.com/ultralytics/assets/releases/download/v8.1.0/{model_name}"
+                    if any(keyword in error_msg.lower() for keyword in ['download', 'connection', 'ssl', 'url', 'network', 'timeout']):
+                        download_url = f"https://github.com/ultralytics/assets/releases/download/v8.1.0/{model_file_name}"
                         home_dir = Path.home()
                         raise ConnectionError(
-                            f"无法下载预训练模型 {model_name}。\n\n"
+                            f"无法下载预训练模型 {model_file_name}。\n\n"
                             f"解决方案：\n"
-                            f"1. 手动下载：{download_url}\n"
-                            f"2. 放置到以下任一位置：\n"
-                            f"   - {Path.cwd() / model_name}\n"
-                            f"   - {home_dir / '.ultralytics' / 'weights' / model_name}\n"
-                            f"   - {home_dir / '.cache' / 'ultralytics' / model_name}\n"
+                            f"1. 检查网络连接\n"
+                            f"2. 手动下载：{download_url}\n"
+                            f"3. 放置到以下任一位置：\n"
+                            f"   - {Path.cwd() / model_file_name}\n"
+                            f"   - {home_dir / '.ultralytics' / 'weights' / model_file_name}\n"
+                            f"   - {home_dir / '.cache' / 'ultralytics' / model_file_name}\n"
+                            f"4. 然后使用文件路径加载模型\n"
+                        ) from e
+                    # 如果是文件不存在错误，也提供相同的提示（可能是自动下载失败）
+                    if 'FileNotFoundError' in str(type(e).__name__) or 'No such file' in error_msg:
+                        download_url = f"https://github.com/ultralytics/assets/releases/download/v8.1.0/{model_file_name}"
+                        home_dir = Path.home()
+                        raise FileNotFoundError(
+                            f"预训练模型 {model_file_name} 未找到，且自动下载失败。\n\n"
+                            f"解决方案：\n"
+                            f"1. 检查网络连接\n"
+                            f"2. 手动下载：{download_url}\n"
+                            f"3. 放置到以下任一位置：\n"
+                            f"   - {Path.cwd() / model_file_name}\n"
+                            f"   - {home_dir / '.ultralytics' / 'weights' / model_file_name}\n"
+                            f"   - {home_dir / '.cache' / 'ultralytics' / model_file_name}\n"
                         ) from e
                     raise
                 

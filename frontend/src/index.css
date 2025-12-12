@@ -29,6 +29,16 @@
   --warning-color: #EB814F;
   --error-color: #ff4d4f;
   --info-color: #0A0D16;
+  
+  /* 按钮规范 */
+  --btn-height-sm: 28px;
+  --btn-height-md: 32px;
+  --btn-height-lg: 36px;
+  --btn-padding-sm: 6px 12px;
+  --btn-padding-md: 8px 16px;
+  --btn-padding-lg: 10px 20px;
+  --btn-font-size: 13px;
+  --btn-line-height: 1.5;
 }
 
 * {
@@ -58,3 +68,52 @@ code {
   overflow: hidden;
 }
 
+/* 统一按钮基础样式 */
+button {
+  font-family: inherit;
+  font-size: var(--btn-font-size);
+  line-height: var(--btn-line-height);
+  box-sizing: border-box;
+}
+
+/* 按钮高度标准化 - 小按钮 */
+.btn-sm,
+[class*="btn-"][class*="small"],
+button[class*="btn"]:not([class*="btn-lg"]):not([class*="btn-md"]) {
+  height: var(--btn-height-sm);
+  min-height: var(--btn-height-sm);
+  padding: var(--btn-padding-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* 按钮高度标准化 - 中等按钮 */
+.btn-md,
+[class*="btn-md"] {
+  height: var(--btn-height-md);
+  min-height: var(--btn-height-md);
+  padding: var(--btn-padding-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* 按钮高度标准化 - 大按钮 */
+.btn-lg,
+[class*="btn-lg"],
+.btn-primary:not(.btn-sm):not(.btn-md),
+.btn-secondary:not(.btn-sm):not(.btn-md) {
+  height: var(--btn-height-lg);
+  min-height: var(--btn-height-lg);
+  padding: var(--btn-padding-lg);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}

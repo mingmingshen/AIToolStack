@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { API_BASE_URL } from '../config';
 import './TrainingPanel.css';
 import { IoClose, IoDownload, IoTrash, IoAdd, IoImage } from 'react-icons/io5';
@@ -72,6 +73,7 @@ interface TrainingRequest {
 }
 
 export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose }) => {
+  const { t, i18n } = useTranslation();
   const [trainingRecords, setTrainingRecords] = useState<TrainingRecord[]>([]);
   const [selectedTrainingId, setSelectedTrainingId] = useState<string | null>(null);
   const [trainingLogs, setTrainingLogs] = useState<string[]>([]);
@@ -338,14 +340,14 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
         setSelectedTrainingId(data.training_id);
       }
     } catch (error: any) {
-      alert(`启动训练失败: ${error.message}`);
+      alert(`${t('training.startTrainingFailed')}: ${error.message}`);
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleStopTraining = async () => {
-    if (!window.confirm('确定要停止训练吗？')) {
+    if (!window.confirm(t('training.confirmStop'))) {
       return;
     }
 
@@ -357,19 +359,19 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || '停止训练失败');
+        throw new Error(error.detail || t('training.stopTrainingFailed'));
       }
       // 停止后刷新记录与日志
       await fetchRecords();
     } catch (error: any) {
-      alert(`停止训练失败: ${error.message}`);
+      alert(`${t('training.stopTrainingFailed')}: ${error.message}`);
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleDeleteRecord = async (trainingId: string) => {
-    if (!window.confirm('确定要删除这条训练记录吗？')) {
+    if (!window.confirm(t('training.confirmDelete'))) {
       return;
     }
 
@@ -380,7 +382,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || '删除训练记录失败');
+        throw new Error(error.detail || t('training.deleteFailed'));
       }
 
       // 如果删除的是当前选中的记录，切换到其他记录
@@ -392,20 +394,20 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
       // 刷新训练记录列表
       await fetchRecords();
     } catch (error: any) {
-      alert(`删除训练记录失败: ${error.message}`);
+      alert(`${t('training.deleteFailed')}: ${error.message}`);
     }
   };
 
   const handleExportModel = async () => {
     if (!currentStatus?.model_path) {
-      alert('模型文件不存在');
+      alert(t('training.modelFileNotExists'));
       return;
     }
 
     try {
       const response = await fetch(`${API_BASE_URL}/projects/${projectId}/train/${selectedTrainingId}/export`);
       if (!response.ok) {
-        throw new Error('导出模型失败');
+        throw new Error(t('training.exportModelFailed'));
       }
 
       const blob = await response.blob();
@@ -418,13 +420,13 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
     } catch (error: any) {
-      alert(`导出模型失败: ${error.message}`);
+      alert(`${t('training.exportModelFailed')}: ${error.message}`);
     }
   };
 
   const handleTestModel = () => {
     if (!currentStatus?.model_path) {
-      alert('模型文件不存在');
+      alert(t('training.modelFileNotExists'));
       return;
     }
     setShowTestModal(true);
@@ -436,7 +438,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
 
   const handleQuantModel = () => {
     if (!currentStatus?.model_path) {
-      alert('模型文件不存在');
+      alert(t('training.modelFileNotExists'));
       return;
     }
     setShowQuantModal(true);
@@ -456,8 +458,8 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
       );
       
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ detail: '下载失败' }));
-        throw new Error(error.detail || '下载失败');
+        const error = await response.json().catch(() => ({ detail: t('training.downloadFailed') }));
+        throw new Error(error.detail || t('training.downloadFailed'));
       }
 
       const blob = await response.blob();
@@ -490,7 +492,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
     } catch (error: any) {
-      alert(`下载失败: ${error.message}`);
+      alert(`${t('training.downloadFailed')}: ${error.message}`);
     }
   };
 
@@ -537,13 +539,13 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || '模型测试失败');
+        throw new Error(error.detail || t('training.test.failed'));
       }
 
       const data = await response.json();
       setTestResults(data);
     } catch (error: any) {
-      alert(`模型测试失败: ${error.message}`);
+      alert(`${t('training.test.failed')}: ${error.message}`);
     } finally {
       setIsTesting(false);
     }
@@ -557,7 +559,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
     <div className="training-panel-overlay" onClick={onClose}>
       <div className="training-panel-fullscreen" onClick={(e) => e.stopPropagation()}>
         <div className="training-panel-header">
-          <h2>模型训练管理</h2>
+          <h2>{t('training.title')}</h2>
           <button className="close-btn" onClick={onClose}>
             <IoClose />
           </button>
@@ -569,18 +571,18 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
             {/* 训练记录列表 */}
             <div className="training-records-section">
               <div className="records-header">
-                <h3>训练记录</h3>
+                <h3>{t('training.title')}</h3>
                 <button 
                   className="btn-new-training"
                   onClick={() => setShowConfigModal(true)}
                   disabled={isLoading}
                 >
-                  <IoAdd /> 新建训练
+                  <IoAdd /> {t('training.newTraining')}
                 </button>
               </div>
               <div className="training-records-list">
                 {trainingRecords.length === 0 ? (
-                  <div className="empty-records">暂无训练记录</div>
+                  <div className="empty-records">{t('training.noTrainingSelected')}</div>
                 ) : (
                   trainingRecords.map((record) => (
                     <div
@@ -590,13 +592,13 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                     >
                       <div className="record-header">
                         <span className="record-time">
-                          {record.start_time ? new Date(record.start_time).toLocaleString('zh-CN') : '未知时间'}
+                          {record.start_time ? new Date(record.start_time).toLocaleString(i18n.language === 'zh' ? 'zh-CN' : 'en-US') : t('common.unknown', '未知时间')}
                         </span>
                         <span className={`record-status status-${record.status}`}>
-                          {record.status === 'running' && '训练中'}
-                          {record.status === 'completed' && '已完成'}
-                          {record.status === 'failed' && '失败'}
-                          {record.status === 'stopped' && '已停止'}
+                          {record.status === 'running' && t('training.statusRunning')}
+                          {record.status === 'completed' && t('training.statusCompleted')}
+                          {record.status === 'failed' && t('training.statusFailed')}
+                          {record.status === 'stopped' && t('training.statusStopped')}
                         </span>
                       </div>
                       <div className="record-info">
@@ -633,17 +635,17 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                 {/* 训练状态 */}
                 <div className="training-status-section">
                   <div className="status-header">
-                    <h3>训练信息</h3>
+                    <h3>{t('training.trainingInfo')}</h3>
                     {isCompleted && currentStatus.model_path && (
                       <div>
                         <button className="btn-export-model" onClick={handleExportModel}>
-                          <IoDownload /> 导出模型(pt)
+                          <IoDownload /> {t('training.exportModel')}
                         </button>
                         <button className="btn-export-model" onClick={handleTestModel}>
-                          <IoImage /> 测试模型
+                          <IoImage /> {t('training.testModel')}
                         </button>
                       <button className="btn-export-model" onClick={handleQuantModel}>
-                        <IoDownload /> 量化(TFLite&CamThink NE301)
+                        <IoDownload /> {t('training.quantizeModel')}
                       </button>
                       </div>
                     )}
@@ -651,106 +653,106 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                   
                   <div className="status-info">
                     <div className="status-item">
-                      <span className="status-label">状态:</span>
+                      <span className="status-label">{t('training.status')}:</span>
                       <span className={`status-value status-${currentStatus.status}`}>
-                        {currentStatus.status === 'running' && '训练中'}
-                        {currentStatus.status === 'completed' && '已完成'}
-                        {currentStatus.status === 'failed' && '失败'}
-                        {currentStatus.status === 'stopped' && '已停止'}
+                        {currentStatus.status === 'running' && t('training.statusRunning')}
+                        {currentStatus.status === 'completed' && t('training.statusCompleted')}
+                        {currentStatus.status === 'failed' && t('training.statusFailed')}
+                        {currentStatus.status === 'stopped' && t('training.statusStopped')}
                       </span>
                     </div>
 
                     {currentStatus.start_time && (
                       <div className="status-item">
-                        <span className="status-label">开始时间:</span>
+                        <span className="status-label">{t('training.startTime')}:</span>
                         <span className="status-value">
-                          {new Date(currentStatus.start_time).toLocaleString('zh-CN')}
+                          {new Date(currentStatus.start_time).toLocaleString(i18n.language === 'zh' ? 'zh-CN' : 'en-US')}
                         </span>
                       </div>
                     )}
 
                     {currentStatus.end_time && (
                       <div className="status-item">
-                        <span className="status-label">结束时间:</span>
+                        <span className="status-label">{t('training.endTime')}:</span>
                         <span className="status-value">
-                          {new Date(currentStatus.end_time).toLocaleString('zh-CN')}
+                          {new Date(currentStatus.end_time).toLocaleString(i18n.language === 'zh' ? 'zh-CN' : 'en-US')}
                         </span>
                       </div>
                     )}
 
                     {currentStatus.model_size && (
                       <div className="status-item">
-                        <span className="status-label">模型大小:</span>
+                        <span className="status-label">{t('training.modelSize')}:</span>
                         <span className="status-value">yolov8{currentStatus.model_size}</span>
                       </div>
                     )}
 
                     {currentStatus.epochs !== undefined && (
                       <div className="status-item">
-                        <span className="status-label">训练轮数:</span>
+                        <span className="status-label">{t('training.epochs')}:</span>
                         <span className="status-value">{currentStatus.epochs}</span>
                       </div>
                     )}
 
                     {currentStatus.batch !== undefined && (
                       <div className="status-item">
-                        <span className="status-label">批次大小:</span>
+                        <span className="status-label">{t('training.batchSize')}:</span>
                         <span className="status-value">{currentStatus.batch}</span>
                       </div>
                     )}
 
                     {currentStatus.imgsz !== undefined && (
                       <div className="status-item">
-                        <span className="status-label">图像尺寸:</span>
+                        <span className="status-label">{t('training.imageSize')}:</span>
                         <span className="status-value">{currentStatus.imgsz}</span>
                       </div>
                     )}
 
                     {currentStatus.device && (
                       <div className="status-item">
-                        <span className="status-label">设备:</span>
+                        <span className="status-label">{t('training.device')}:</span>
                         <span className="status-value">{currentStatus.device}</span>
                       </div>
                     )}
 
                     {isFailed && currentStatus.error && (
                       <div className="error-message">
-                        <strong>错误:</strong> {currentStatus.error}
+                        <strong>{t('common.error')}:</strong> {currentStatus.error}
                       </div>
                     )}
 
                     {isCompleted && currentStatus.model_path && (
                       <div className="model-path">
-                        <strong>模型路径:</strong> {currentStatus.model_path}
+                        <strong>{t('training.modelPath')}:</strong> {currentStatus.model_path}
                       </div>
                     )}
 
                     {/* 训练性能指标 */}
                     {isCompleted && currentStatus.metrics && (
                       <div className="training-metrics">
-                        <h4 className="metrics-title">最终验证性能指标</h4>
+                        <h4 className="metrics-title">{t('training.finalMetrics')}</h4>
                         <div className="metrics-grid">
                           {currentStatus.metrics.mAP50 !== undefined && (
                             <div className="metric-item">
-                              <span className="metric-label">mAP50:</span>
+                              <span className="metric-label">{t('training.metrics.mAP50')}:</span>
                               <span className="metric-value">{(currentStatus.metrics.mAP50 * 100).toFixed(2)}%</span>
                             </div>
                           )}
                           {currentStatus.metrics['mAP50-95'] !== undefined && (
                             <div className="metric-item">
-                              <span className="metric-label">mAP50-95:</span>
+                              <span className="metric-label">{t('training.metrics.mAP50-95')}:</span>
                               <span className="metric-value">{(currentStatus.metrics['mAP50-95'] * 100).toFixed(2)}%</span>
                             </div>
                           )}
                           {currentStatus.metrics.precision !== undefined && (
                             <div className="metric-item">
-                              <span className="metric-label">精确率 (Precision):</span>
+                              <span className="metric-label">{t('training.metrics.precision')}:</span>
                               <span className="metric-value">{(currentStatus.metrics.precision * 100).toFixed(2)}%</span>
                             </div>
                           )}
                           {currentStatus.metrics.recall !== undefined && (
                             <div className="metric-item">
-                              <span className="metric-label">召回率 (Recall):</span>
+                              <span className="metric-label">{t('training.metrics.recall')}:</span>
                               <span className="metric-value">{(currentStatus.metrics.recall * 100).toFixed(2)}%</span>
                             </div>
                           )}
@@ -768,7 +770,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                   <div className="training-actions">
                     {isTraining && (
                       <button className="btn-stop-training" onClick={handleStopTraining}>
-                        停止训练
+                        {t('training.stopTraining')}
                       </button>
                     )}
                   </div>
@@ -776,10 +778,10 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
 
                 {/* 训练日志 */}
                 <div className="training-logs-section">
-                  <h3>训练日志</h3>
+                  <h3>{t('training.trainingLogs')}</h3>
                   <div className="logs-container">
                     {trainingLogs.length === 0 ? (
-                      <div className="empty-logs">暂无日志</div>
+                      <div className="empty-logs">{t('training.noLogs')}</div>
                     ) : (
                       trainingLogs.map((log, index) => (
                         <div key={index} className="log-line">{log}</div>
@@ -791,7 +793,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
               </>
             ) : (
               <div className="no-training-selected">
-                <p>请选择一个训练记录或开始新的训练</p>
+                <p>{t('training.noTrainingSelected')}</p>
               </div>
             )}
           </div>
@@ -802,7 +804,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
           <div className="config-modal-overlay" onClick={() => !isLoading && setShowConfigModal(false)}>
             <div className="config-modal" onClick={(e) => e.stopPropagation()}>
               <div className="config-modal-header">
-                <h3>新建训练任务</h3>
+                <h3>{t('training.newTrainingTask')}</h3>
                 <button 
                   className="close-btn" 
                   onClick={() => setShowConfigModal(false)}
@@ -814,22 +816,22 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
               
               <div className="config-modal-content">
                 <div className="config-item">
-                  <label>模型大小</label>
+                  <label>{t('training.modelSize')}</label>
                   <select
                     value={trainingConfig.model_size}
                     onChange={(e) => setTrainingConfig({ ...trainingConfig, model_size: e.target.value })}
                     disabled={isLoading}
                   >
-                    <option value="n">Nano (最快，最小)</option>
-                    <option value="s">Small (小)</option>
-                    <option value="m">Medium (中等)</option>
-                    <option value="l">Large (大)</option>
-                    <option value="x">XLarge (最大，最准确)</option>
+                    <option value="n">{t('training.modelSizeOptions.n')}</option>
+                    <option value="s">{t('training.modelSizeOptions.s')}</option>
+                    <option value="m">{t('training.modelSizeOptions.m')}</option>
+                    <option value="l">{t('training.modelSizeOptions.l')}</option>
+                    <option value="x">{t('training.modelSizeOptions.x')}</option>
                   </select>
                 </div>
 
                 <div className="config-item">
-                  <label>训练轮数 (Epochs)</label>
+                  <label>{t('training.epochsLabel')}</label>
                   <input
                     type="number"
                     min="1"
@@ -857,7 +859,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                 </div>
 
                 <div className="config-item">
-                  <label>图像尺寸 (Image Size)</label>
+                  <label>{t('training.imageSizeLabel')}</label>
                   <input
                     type="number"
                     min="320"
@@ -886,7 +888,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                 </div>
 
                 <div className="config-item">
-                  <label>批次大小 (Batch Size)</label>
+                  <label>{t('training.batchSizeLabel')}</label>
                   <input
                     type="number"
                     min="1"
@@ -914,10 +916,10 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                 </div>
 
                 <div className="config-item">
-                  <label>设备 (Device)</label>
+                  <label>{t('training.deviceLabel')}</label>
                   <input
                     type="text"
-                    placeholder="留空自动选择 (cpu/cuda/0/1/mps...)"
+                    placeholder={t('training.devicePlaceholder', '留空自动选择 (cpu/cuda/0/1/mps...)')}
                     value={trainingConfig.device || ''}
                     onChange={(e) => setTrainingConfig({ ...trainingConfig, device: e.target.value || undefined })}
                     disabled={isLoading}
@@ -926,17 +928,17 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
 
                 {/* 学习率参数 */}
                 <div className="config-section-divider">
-                  <span>学习率参数</span>
+                  <span>{t('training.learningRate.title')}</span>
                 </div>
 
                 <div className="config-item">
-                  <label>初始学习率 (lr0)</label>
+                  <label>{t('training.learningRate.lr0')}</label>
                   <input
                     type="number"
                     step="0.0001"
                     min="0.0001"
                     max="1"
-                    placeholder="留空使用默认值"
+                    placeholder={t('training.learningRate.placeholder')}
                     value={trainingConfig.lr0 ?? ''}
                     onChange={(e) => {
                       const value = e.target.value;
@@ -947,13 +949,13 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                 </div>
 
                 <div className="config-item">
-                  <label>最终学习率 (lrf)</label>
+                  <label>{t('training.learningRate.lrf')}</label>
                   <input
                     type="number"
                     step="0.0001"
                     min="0.0001"
                     max="1"
-                    placeholder="留空使用默认值"
+                    placeholder={t('training.learningRate.placeholder')}
                     value={trainingConfig.lrf ?? ''}
                     onChange={(e) => {
                       const value = e.target.value;
@@ -965,17 +967,17 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
 
                 {/* 优化器参数 */}
                 <div className="config-section-divider">
-                  <span>优化器参数</span>
+                  <span>{t('training.optimizer.title')}</span>
                 </div>
 
                 <div className="config-item">
-                  <label>优化器 (Optimizer)</label>
+                  <label>{t('training.optimizer.label')}</label>
                   <select
                     value={trainingConfig.optimizer || ''}
                     onChange={(e) => setTrainingConfig({ ...trainingConfig, optimizer: e.target.value || undefined })}
                     disabled={isLoading}
                   >
-                    <option value="">使用默认 (auto)</option>
+                    <option value="">{t('training.optimizer.default')}</option>
                     <option value="SGD">SGD</option>
                     <option value="Adam">Adam</option>
                     <option value="AdamW">AdamW</option>
@@ -984,13 +986,13 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                 </div>
 
                 <div className="config-item">
-                  <label>动量 (Momentum)</label>
+                  <label>{t('training.optimizer.momentum')}</label>
                   <input
                     type="number"
                     step="0.01"
                     min="0"
                     max="1"
-                    placeholder="留空使用默认值"
+                    placeholder={t('training.learningRate.placeholder')}
                     value={trainingConfig.momentum ?? ''}
                     onChange={(e) => {
                       const value = e.target.value;
@@ -1001,13 +1003,13 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                 </div>
 
                 <div className="config-item">
-                  <label>权重衰减 (Weight Decay)</label>
+                  <label>{t('training.optimizer.weightDecay')}</label>
                   <input
                     type="number"
                     step="0.0001"
                     min="0"
                     max="0.01"
-                    placeholder="留空使用默认值"
+                    placeholder={t('training.learningRate.placeholder')}
                     value={trainingConfig.weight_decay ?? ''}
                     onChange={(e) => {
                       const value = e.target.value;
@@ -1019,16 +1021,16 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
 
                 {/* 训练控制参数 */}
                 <div className="config-section-divider">
-                  <span>训练控制</span>
+                  <span>{t('training.control.title')}</span>
                 </div>
 
                 <div className="config-item">
-                  <label>早停耐心值 (Patience)</label>
+                  <label>{t('training.control.patience')}</label>
                   <input
                     type="number"
                     min="0"
                     max="1000"
-                    placeholder="留空使用默认值 (100)"
+                    placeholder={t('training.control.patiencePlaceholder')}
                     value={trainingConfig.patience ?? ''}
                     onChange={(e) => {
                       const value = e.target.value;
@@ -1039,12 +1041,12 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                 </div>
 
                 <div className="config-item">
-                  <label>数据加载线程数 (Workers)</label>
+                  <label>{t('training.control.workers')}</label>
                   <input
                     type="number"
                     min="0"
                     max="16"
-                    placeholder="留空使用默认值"
+                    placeholder={t('training.learningRate.placeholder')}
                     value={trainingConfig.workers ?? ''}
                     onChange={(e) => {
                       const value = e.target.value;
@@ -1062,7 +1064,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                       onChange={(e) => setTrainingConfig({ ...trainingConfig, val: e.target.checked || undefined })}
                       disabled={isLoading}
                     />
-                    <span>进行验证 (Validation)</span>
+                    <span>{t('training.control.validation')}</span>
                   </label>
                 </div>
 
@@ -1074,17 +1076,17 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                       onChange={(e) => setTrainingConfig({ ...trainingConfig, amp: e.target.checked || undefined })}
                       disabled={isLoading}
                     />
-                    <span>混合精度训练 (AMP)</span>
+                    <span>{t('training.control.amp')}</span>
                   </label>
                 </div>
 
                 <div className="config-item">
-                  <label>保存周期 (Save Period)</label>
+                  <label>{t('training.control.savePeriod')}</label>
                   <input
                     type="number"
                     min="-1"
                     max="100"
-                    placeholder="留空使用默认值 (-1=不保存中间模型)"
+                    placeholder={t('training.control.savePeriodPlaceholder')}
                     value={trainingConfig.save_period ?? ''}
                     onChange={(e) => {
                       const value = e.target.value;
@@ -1103,20 +1105,20 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                     disabled={isLoading}
                   >
                     <span>{showAdvanced ? '▼' : '▶'}</span>
-                    <span>高级选项 - 数据增强</span>
+                    <span>{t('training.advanced.title')}</span>
                   </button>
                 </div>
 
                 {showAdvanced && (
                   <>
                     <div className="config-item">
-                      <label>HSV 色调增强 (hsv_h)</label>
+                      <label>{t('training.advanced.hsvH')}</label>
                       <input
                         type="number"
                         step="0.001"
                         min="0"
                         max="0.1"
-                        placeholder="默认: 0.015"
+                        placeholder={`${t('training.advanced.default')}: 0.015`}
                         value={trainingConfig.hsv_h ?? ''}
                         onChange={(e) => {
                           const value = e.target.value;
@@ -1127,13 +1129,13 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                     </div>
 
                     <div className="config-item">
-                      <label>HSV 饱和度增强 (hsv_s)</label>
+                      <label>{t('training.advanced.hsvS')}</label>
                       <input
                         type="number"
                         step="0.1"
                         min="0"
                         max="1"
-                        placeholder="默认: 0.7"
+                        placeholder={`${t('training.advanced.default')}: 0.7`}
                         value={trainingConfig.hsv_s ?? ''}
                         onChange={(e) => {
                           const value = e.target.value;
@@ -1144,13 +1146,13 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                     </div>
 
                     <div className="config-item">
-                      <label>HSV 明度增强 (hsv_v)</label>
+                      <label>{t('training.advanced.hsvV')}</label>
                       <input
                         type="number"
                         step="0.1"
                         min="0"
                         max="1"
-                        placeholder="默认: 0.4"
+                        placeholder={`${t('training.advanced.default')}: 0.4`}
                         value={trainingConfig.hsv_v ?? ''}
                         onChange={(e) => {
                           const value = e.target.value;
@@ -1161,13 +1163,13 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                     </div>
 
                     <div className="config-item">
-                      <label>旋转角度 (degrees)</label>
+                      <label>{t('training.advanced.degrees')}</label>
                       <input
                         type="number"
                         step="0.1"
                         min="0"
                         max="45"
-                        placeholder="默认: 0.0"
+                        placeholder={`${t('training.advanced.default')}: 0.0`}
                         value={trainingConfig.degrees ?? ''}
                         onChange={(e) => {
                           const value = e.target.value;
@@ -1178,13 +1180,13 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                     </div>
 
                     <div className="config-item">
-                      <label>平移 (translate)</label>
+                      <label>{t('training.advanced.translate')}</label>
                       <input
                         type="number"
                         step="0.01"
                         min="0"
                         max="0.5"
-                        placeholder="默认: 0.1"
+                        placeholder={`${t('training.advanced.default')}: 0.1`}
                         value={trainingConfig.translate ?? ''}
                         onChange={(e) => {
                           const value = e.target.value;
@@ -1195,13 +1197,13 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                     </div>
 
                     <div className="config-item">
-                      <label>缩放 (scale)</label>
+                      <label>{t('training.advanced.scale')}</label>
                       <input
                         type="number"
                         step="0.1"
                         min="0"
                         max="1"
-                        placeholder="默认: 0.5"
+                        placeholder={`${t('training.advanced.default')}: 0.5`}
                         value={trainingConfig.scale ?? ''}
                         onChange={(e) => {
                           const value = e.target.value;
@@ -1212,13 +1214,13 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                     </div>
 
                     <div className="config-item">
-                      <label>剪切 (shear)</label>
+                      <label>{t('training.advanced.shear')}</label>
                       <input
                         type="number"
                         step="0.1"
                         min="0"
                         max="10"
-                        placeholder="默认: 0.0"
+                        placeholder={`${t('training.advanced.default')}: 0.0`}
                         value={trainingConfig.shear ?? ''}
                         onChange={(e) => {
                           const value = e.target.value;
@@ -1229,13 +1231,13 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                     </div>
 
                     <div className="config-item">
-                      <label>透视变换 (perspective)</label>
+                      <label>{t('training.advanced.perspective')}</label>
                       <input
                         type="number"
                         step="0.001"
                         min="0"
                         max="0.01"
-                        placeholder="默认: 0.0"
+                        placeholder={`${t('training.advanced.default')}: 0.0`}
                         value={trainingConfig.perspective ?? ''}
                         onChange={(e) => {
                           const value = e.target.value;
@@ -1246,13 +1248,13 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                     </div>
 
                     <div className="config-item">
-                      <label>上下翻转概率 (flipud)</label>
+                      <label>{t('training.advanced.flipud')}</label>
                       <input
                         type="number"
                         step="0.1"
                         min="0"
                         max="1"
-                        placeholder="默认: 0.0"
+                        placeholder={`${t('training.advanced.default')}: 0.0`}
                         value={trainingConfig.flipud ?? ''}
                         onChange={(e) => {
                           const value = e.target.value;
@@ -1263,13 +1265,13 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                     </div>
 
                     <div className="config-item">
-                      <label>左右翻转概率 (fliplr)</label>
+                      <label>{t('training.advanced.fliplr')}</label>
                       <input
                         type="number"
                         step="0.1"
                         min="0"
                         max="1"
-                        placeholder="默认: 0.5"
+                        placeholder={`${t('training.advanced.default')}: 0.5`}
                         value={trainingConfig.fliplr ?? ''}
                         onChange={(e) => {
                           const value = e.target.value;
@@ -1280,13 +1282,13 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                     </div>
 
                     <div className="config-item">
-                      <label>Mosaic 增强概率 (mosaic)</label>
+                      <label>{t('training.advanced.mosaic')}</label>
                       <input
                         type="number"
                         step="0.1"
                         min="0"
                         max="1"
-                        placeholder="默认: 1.0"
+                        placeholder={`${t('training.advanced.default')}: 1.0`}
                         value={trainingConfig.mosaic ?? ''}
                         onChange={(e) => {
                           const value = e.target.value;
@@ -1297,13 +1299,13 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                     </div>
 
                     <div className="config-item">
-                      <label>Mixup 增强概率 (mixup)</label>
+                      <label>{t('training.advanced.mixup')}</label>
                       <input
                         type="number"
                         step="0.1"
                         min="0"
                         max="1"
-                        placeholder="默认: 0.0"
+                        placeholder={`${t('training.advanced.default')}: 0.0`}
                         value={trainingConfig.mixup ?? ''}
                         onChange={(e) => {
                           const value = e.target.value;
@@ -1329,7 +1331,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                   onClick={handleStartTraining}
                   disabled={isLoading}
                 >
-                  {isLoading ? '启动中...' : '开始训练'}
+                  {isLoading ? t('common.loading') : t('training.startTraining')}
                 </button>
               </div>
             </div>
@@ -1341,7 +1343,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
           <div className="config-modal-overlay" onClick={() => !isTesting && setShowTestModal(false)}>
             <div className="config-modal test-modal" onClick={(e) => e.stopPropagation()}>
               <div className="config-modal-header">
-                <h3>模型测试</h3>
+                <h3>{t('training.test.title')}</h3>
                 <button 
                   className="close-btn" 
                   onClick={() => setShowTestModal(false)}
@@ -1365,11 +1367,11 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                         />
                         <div className="test-upload-area">
                           {testImage ? (
-                            <img src={testImage} alt="预览" className="test-preview-image" />
+                            <img src={testImage} alt={t('training.test.preview')} className="test-preview-image" />
                           ) : (
                             <div className="test-upload-placeholder">
                               <IoImage size={48} />
-                              <p>点击或拖拽图片到此处上传</p>
+                              <p>{t('training.test.uploadPlaceholder')}</p>
                             </div>
                           )}
                         </div>
@@ -1377,7 +1379,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                     </div>
 
                     <div className="config-item">
-                      <label>置信度阈值 (conf)</label>
+                      <label>{t('training.test.confThreshold')}</label>
                       <input
                         type="number"
                         step="0.01"
@@ -1393,7 +1395,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                     </div>
 
                     <div className="config-item">
-                      <label>IoU 阈值 (iou)</label>
+                      <label>{t('training.test.iouThreshold', 'IoU 阈值 (iou)')}</label>
                       <input
                         type="number"
                         step="0.01"
@@ -1414,19 +1416,19 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                       <>
                         {testResults.annotated_image && (
                           <div className="test-result-image">
-                            <img src={testResults.annotated_image} alt="检测结果" />
+                            <img src={testResults.annotated_image} alt={t('training.test.detectionResult')} />
                           </div>
                         )}
                         {testResults.detections && testResults.detections.length > 0 && (
                           <div className="test-detections-list">
                             <div className="config-item">
-                              <label>检测详情</label>
+                              <label>{t('training.test.details', '检测详情')}</label>
 
                               <div className="detection-list-container">
                                 {testResults.detections.map((det: any, index: number) => (
                                   <div key={index} className="detection-item">
                                     <span className="detection-class">{det.class_name}</span>
-                                    <span className="detection-confidence">置信度: {(det.confidence * 100).toFixed(2)}%</span>
+                                    <span className="detection-confidence">{t('training.test.confidence')}: {(det.confidence * 100).toFixed(2)}%</span>
                                     <span className="detection-bbox">
                                       [{det.bbox.x1.toFixed(0)}, {det.bbox.y1.toFixed(0)}, {det.bbox.x2.toFixed(0)}, {det.bbox.y2.toFixed(0)}]
                                     </span>
@@ -1439,9 +1441,9 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                       </>
                     ) : (
                       <div className="test-results-section placeholder">
-                        <h4>检测结果</h4>
+                        <h4>{t('training.test.results')}</h4>
                         <div className="test-results-info">
-                          <p>请上传图片并点击“开始检测”</p>
+                          <p>{t('training.test.uploadHint')}</p>
                         </div>
                       </div>
                     )}
@@ -1455,7 +1457,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                   onClick={handleRunTest}
                   disabled={!testImage || isTesting}
                 >
-                  {isTesting ? '检测中...' : '开始检测'}
+                  {isTesting ? t('training.test.testing', '检测中...') : t('training.test.start', '开始检测')}
                 </button>
               </div>
             </div>
@@ -1466,7 +1468,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
         {showQuantModal && (
           <div className="config-modal-overlay" onClick={() => {
             if (isQuanting) {
-              if (!window.confirm('量化正在进行中，确定要关闭窗口吗？关闭后您将无法看到进度，但后台处理会继续。')) {
+              if (!window.confirm(t('quantization.confirmClose'))) {
                 return;
               }
             }
@@ -1482,12 +1484,12 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
           }}>
             <div className="config-modal quant-modal" onClick={(e) => e.stopPropagation()}>
               <div className="config-modal-header">
-                <h3>模型量化导出 (TFLite)</h3>
-                <button
-                  className="close-btn"
+                <h3>{t('quantization.title')}</h3>
+                <button 
+                  className="close-btn" 
                   onClick={() => {
                     if (isQuanting) {
-                      if (!window.confirm('量化正在进行中，确定要关闭窗口吗？关闭后您将无法看到进度，但后台处理会继续。')) {
+                      if (!window.confirm(t('quantization.confirmClose'))) {
                         return;
                       }
                     }
@@ -1501,7 +1503,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                     setQuantStartTime(null);
                     setQuantElapsedTime(0);
                   }}
-                  title={isQuanting ? '量化正在进行，点击将关闭窗口（后台处理会继续）' : '关闭'}
+                  title={isQuanting ? t('training.quantization.closeWindowHint') : t('training.quantization.closeWindow')}
                 >
                   <IoClose />
                 </button>
@@ -1511,54 +1513,54 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                 {/* 表单：只在未开始量化且无结果时显示 */}
                 {!isQuanting && !quantResult && (
                   <>
-                    <div className="config-item">
-                      <label>输入尺寸 (imgsz)</label>
-                      <input
-                        type="number"
-                        min="32"
-                        max="2048"
-                        step="32"
-                        value={quantImgSz}
-                        onChange={(e) => setQuantImgSz(Math.max(32, Math.min(2048, parseInt(e.target.value || '0', 10))))}
-                      />
-                    </div>
+                <div className="config-item">
+                      <label>{t('quantization.inputSize')}</label>
+                  <input
+                    type="number"
+                    min="32"
+                    max="2048"
+                    step="32"
+                    value={quantImgSz}
+                    onChange={(e) => setQuantImgSz(Math.max(32, Math.min(2048, parseInt(e.target.value || '0', 10))))}
+                  />
+                </div>
 
-                    <div className="config-item checkbox-row">
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={quantInt8}
-                          onChange={(e) => setQuantInt8(e.target.checked)}
-                        />
-                        <span>使用 int8 量化</span>
-                      </label>
-                    </div>
+                <div className="config-item checkbox-row">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={quantInt8}
+                      onChange={(e) => setQuantInt8(e.target.checked)}
+                    />
+                        <span>{t('quantization.useInt8')}</span>
+                  </label>
+                </div>
 
-                    <div className="config-item checkbox-row">
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={quantNe301}
-                          onChange={(e) => setQuantNe301(e.target.checked)}
-                        />
-                        <span>量化为 NE301 设备模型</span>
-                      </label>
-                    </div>
+                <div className="config-item checkbox-row">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={quantNe301}
+                      onChange={(e) => setQuantNe301(e.target.checked)}
+                    />
+                        <span>{t('quantization.ne301Device')}</span>
+                  </label>
+                </div>
 
-                    <div className="config-item">
-                      <label>校准数据占比 (fraction)</label>
-                      <input
-                        type="number"
-                        step="0.05"
-                        min="0"
-                        max="1"
-                        value={quantFraction}
-                        onChange={(e) => {
-                          const v = parseFloat(e.target.value);
-                          if (!isNaN(v)) setQuantFraction(Math.min(1, Math.max(0, v)));
-                        }}
-                      />
-                    </div>
+                <div className="config-item">
+                      <label>{t('quantization.calibFraction')}</label>
+                  <input
+                    type="number"
+                    step="0.05"
+                    min="0"
+                    max="1"
+                    value={quantFraction}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      if (!isNaN(v)) setQuantFraction(Math.min(1, Math.max(0, v)));
+                    }}
+                  />
+                </div>
                   </>
                 )}
 
@@ -1567,7 +1569,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                   <div className="quant-progress-section">
                     <div className="quant-progress-header">
                       <div className="quant-progress-spinner"></div>
-                      <span className="quant-progress-text">量化处理中，请耐心等待...</span>
+                      <span className="quant-progress-text">{t('quantization.inProgress')}</span>
                     </div>
                     {quantProgress && (
                       <div className="quant-progress-message">
@@ -1576,17 +1578,17 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                     )}
                     {quantStartTime && (
                       <div className="quant-progress-time">
-                        已用时: {quantElapsedTime} 秒
+                        {t('quantization.elapsedTime')}: {quantElapsedTime} {t('quantization.seconds')}
                       </div>
                     )}
                     <div className="quant-progress-hint">
-                      <p>量化过程可能需要几分钟时间，包括：</p>
+                      <p>{t('quantization.stepsDesc', '量化过程可能需要几分钟时间，包括：')}</p>
                       <ul>
-                        <li>导出 TFLite int8 量化模型</li>
+                        <li>{t('quantization.steps.tflite')}</li>
                         {quantNe301 && (
                           <>
-                            <li>生成 NE301 JSON 配置文件</li>
-                            <li>编译 NE301 模型包（.bin 文件）</li>
+                            <li>{t('quantization.steps.json')}</li>
+                            <li>{t('quantization.steps.compile')}</li>
                           </>
                         )}
                       </ul>
@@ -1598,67 +1600,67 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                 {quantResult && !isQuanting && (
                   <div className="quant-result">
                     <div className="quant-result-message">
-                      <strong>导出结果:</strong> {quantResult.message || '成功'}
+                      <strong>{t('quantization.result')}:</strong> {quantResult.message || t('common.success')}
                     </div>
                     {quantResult.params && (
                       <div className="quant-result-params">
-                        参数: imgsz={quantResult.params.imgsz}, int8={String(quantResult.params.int8)}, fraction={quantResult.params.fraction}
+                        {t('quantization.params')}: imgsz={quantResult.params.imgsz}, int8={String(quantResult.params.int8)}, fraction={quantResult.params.fraction}
                       </div>
                     )}
                     <div className="quant-files-list">
                       {quantResult.tflite_path && (
                         <div className="quant-file-item">
                           <div className="quant-file-info">
-                            <div className="quant-file-label">TFLite模型</div>
+                            <div className="quant-file-label">{t('quantization.files.tflite')}</div>
                             <div className="quant-file-name">{quantResult.tflite_path.split('/').pop()}</div>
                           </div>
                           <button
                             className="btn-download-file"
                             onClick={() => handleDownloadExportFile('tflite')}
                           >
-                            <IoDownload /> 下载
+                            <IoDownload /> {t('quantization.download')}
                           </button>
                         </div>
                       )}
                       {quantResult.ne301_tflite && (
                         <div className="quant-file-item">
                           <div className="quant-file-info">
-                            <div className="quant-file-label">NE301量化模型</div>
+                            <div className="quant-file-label">{t('quantization.files.ne301Tflite')}</div>
                             <div className="quant-file-name">{quantResult.ne301_tflite.split('/').pop()}</div>
                           </div>
                           <button
                             className="btn-download-file"
                             onClick={() => handleDownloadExportFile('ne301_tflite')}
                           >
-                            <IoDownload /> 下载
+                            <IoDownload /> {t('quantization.download')}
                           </button>
                         </div>
                       )}
                       {quantResult.ne301_json && (
                         <div className="quant-file-item">
                           <div className="quant-file-info">
-                            <div className="quant-file-label">NE301配置文件</div>
+                            <div className="quant-file-label">{t('quantization.files.ne301Json')}</div>
                             <div className="quant-file-name">{quantResult.ne301_json.split('/').pop()}</div>
                           </div>
                           <button
                             className="btn-download-file"
                             onClick={() => handleDownloadExportFile('ne301_json')}
                           >
-                            <IoDownload /> 下载
+                            <IoDownload /> {t('quantization.download')}
                           </button>
                         </div>
                       )}
                       {quantResult.ne301_model_bin && (
                         <div className="quant-file-item model-package">
                           <div className="quant-file-info">
-                            <div className="quant-file-label">NE301模型包</div>
+                            <div className="quant-file-label">{t('quantization.files.ne301Bin')}</div>
                             <div className="quant-file-name">{quantResult.ne301_model_bin.split('/').pop()}</div>
                           </div>
                           <button
                             className="btn-download-file model-package"
                             onClick={() => handleDownloadExportFile('ne301_model_bin')}
                           >
-                            <IoDownload /> 下载模型包
+                            <IoDownload /> {t('training.quantization.downloadPackage')}
                           </button>
                         </div>
                       )}
@@ -1670,13 +1672,13 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
               <div className="config-modal-actions">
                 {/* 按钮：只在未开始量化且无结果时显示 */}
                 {!isQuanting && !quantResult && (
-                  <button
-                    className="btn-start-training"
-                    onClick={async () => {
+                <button
+                  className="btn-start-training"
+                  onClick={async () => {
                     if (!selectedTrainingId) return;
                     setIsQuanting(true);
                     setQuantResult(null);
-                    setQuantProgress('正在初始化量化流程...');
+                    setQuantProgress(t('quantization.initializing'));
                     const startTime = Date.now();
                     setQuantStartTime(startTime);
                     setQuantElapsedTime(0);
@@ -1688,14 +1690,14 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                     
                     // 设置进度提示的定时更新
                     const progressSteps = [
-                      { delay: 3000, message: '正在加载模型文件...' },
-                      { delay: 8000, message: '正在进行 TFLite int8 量化...' },
+                      { delay: 3000, message: t('quantization.loadingModel') },
+                      { delay: 8000, message: t('quantization.quantizing') },
                     ];
                     
                     if (quantNe301) {
                       progressSteps.push(
-                        { delay: 20000, message: '正在生成 NE301 JSON 配置文件...' },
-                        { delay: 40000, message: '正在编译 NE301 模型包，这可能需要几分钟...' }
+                        { delay: 20000, message: t('quantization.generatingJson') },
+                        { delay: 40000, message: t('quantization.compiling') }
                       );
                     }
                     
@@ -1719,7 +1721,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                       
                       if (!response.ok) {
                         const err = await response.json();
-                        throw new Error(err.detail || '量化导出失败');
+                        throw new Error(err.detail || t('quantization.failed'));
                       }
                       
                       const data = await response.json();
@@ -1729,8 +1731,8 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                       const finalElapsedTime = quantElapsedTime || (quantStartTime ? Math.floor((Date.now() - quantStartTime) / 1000) : 0);
                       const minutes = Math.floor(finalElapsedTime / 60);
                       const seconds = finalElapsedTime % 60;
-                      const timeStr = minutes > 0 ? `${minutes}分${seconds}秒` : `${seconds}秒`;
-                      setQuantProgress(`量化成功完成！总耗时: ${timeStr}`);
+                      const timeStr = minutes > 0 ? `${minutes}${t('quantization.minutes', '分')}${seconds}${t('quantization.seconds')}` : `${seconds}${t('quantization.seconds')}`;
+                      setQuantProgress(`${t('quantization.success')}: ${timeStr}`);
                       
                       // 立即清除进度提示，直接显示结果
                       setTimeout(() => {
@@ -1744,11 +1746,11 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                       }
                       
                       const errorMessage = error.message || '未知错误';
-                      setQuantProgress(`✗ 量化失败: ${errorMessage}`);
+                      setQuantProgress(`✗ ${t('quantization.failed')}: ${errorMessage}`);
                       
                       // 5秒后显示 alert，让用户先看到进度提示中的错误消息
                       setTimeout(() => {
-                        alert(`量化导出失败: ${errorMessage}`);
+                        alert(`${t('quantization.failed')}: ${errorMessage}`);
                       }, 500);
                     } finally {
                       setIsQuanting(false);
@@ -1757,7 +1759,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                     }
                   }}
                 >
-                  开始量化
+                  {t('training.quantization.startQuantize')}
                 </button>
                 )}
                 
@@ -1772,7 +1774,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                       setQuantStartTime(null);
                     }}
                   >
-                    重新量化
+                    {t('quantization.reQuantize')}
                   </button>
                 )}
               </div>

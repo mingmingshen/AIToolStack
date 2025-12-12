@@ -15,8 +15,8 @@ from backend.services.websocket_manager import websocket_manager
 
 # 创建 FastAPI 应用
 app = FastAPI(
-    title="NeoEyesTool API",
-    description="图像标注工具与 IoT 集成系统 API",
+    title="CamThink AI Workspace API",
+    description="Provide various AI toolsets to accelerate AI edge deployment",
     version="1.0.0"
 )
 
@@ -78,7 +78,7 @@ if FRONTEND_BUILD_DIR.exists():
 @app.on_event("startup")
 async def startup_event():
     """应用启动时初始化"""
-    print("[Server] Starting NeoEyesTool backend...")
+    print("[Server] Starting CamThink AI Workspace backend...")
     
     # 初始化数据库
     init_db()
@@ -138,7 +138,7 @@ async def shutdown_event():
 def api_info():
     """API 信息"""
     return {
-        "name": "NeoEyesTool API",
+        "name": "CamThink AI Workspace API",
         "version": "1.0.0",
         "status": "running"
     }

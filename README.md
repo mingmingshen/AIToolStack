@@ -1,5 +1,5 @@
 # Overview
-NeoEyesTool is an end-to-end edge-AI toolkit for NeoEyes NE301 (and similar) devices, covering data collection, labeling, training, quantization, and deployment. It can be self-hosted and continuously updated.
+CamThink AI Workspace is an end-to-end edge-AI toolkit for NeoEyes NE301 (and similar) devices, covering data collection, labeling, training, quantization, and deployment. It can be self-hosted and continuously updated.
 
 ## Key Features
 - Data ingest & management: MQTT image ingest; project/image lists.

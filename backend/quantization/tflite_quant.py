@@ -1,5 +1,5 @@
 """
-NE301 设备量化脚本（来自 STM32AI 示例，稍作注释保留）
+NE301 device quantization script (from STM32AI example, comments preserved)
 """
 
 import os
@@ -25,7 +25,7 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 
 def setup_seed(seed: int):
-    """固定随机种子，确保可重复"""
+    """Fix random seed for reproducibility"""
     os.environ["PYTHONHASHSEED"] = str(seed)
     random.seed(seed)
     np.random.seed(seed)
@@ -40,7 +40,7 @@ def get_config(cfg: DictConfig):
 
 @hydra.main(version_base=None, config_path="", config_name="user_config_quant")
 def main(cfg: DictConfig) -> None:
-    """执行量化入口"""
+    """Quantization entry point"""
 
     def representative_data_gen():
         if cfg.quantization.fake is True:
@@ -96,7 +96,7 @@ def main(cfg: DictConfig) -> None:
     tflite_models_dir = pathlib.Path(cfg.quantization.export_path)
     tflite_models_dir.mkdir(exist_ok=True, parents=True)
 
-    # 配置输入/输出类型
+    # Configure input/output types
     if cfg.quantization.quantization_input_type == "int8":
         converter.inference_input_type = tf.int8
         input_tag = "i"
@@ -118,7 +118,7 @@ def main(cfg: DictConfig) -> None:
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
     converter.representative_dataset = representative_data_gen
 
-    # 量化并保存
+    # Quantize and save
     tflite_model_quantio = converter.convert()
     tflite_model_quantio_file = (
         tflite_models_dir

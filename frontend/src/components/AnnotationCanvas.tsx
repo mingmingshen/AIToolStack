@@ -4,7 +4,7 @@ import { API_BASE_URL } from '../config';
 import { IoWarning } from 'react-icons/io5';
 import './AnnotationCanvas.css';
 
-// 图标组件包装器，解决 TypeScript 类型问题
+// Icon component wrapper to resolve TypeScript type issues
 const Icon: React.FC<{ component: React.ComponentType<any> }> = ({ component: Component }) => {
   return <Component />;
 };
@@ -51,49 +51,49 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState<Point>({ x: 0, y: 0 });
   
-  // 矩形框绘制状态
+  // Bounding box drawing state
   const [bboxStart, setBboxStart] = useState<Point | null>(null);
   const [bboxCurrent, setBboxCurrent] = useState<Point | null>(null);
   
-  // 多边形绘制状态
+  // Polygon drawing state
   const [polygonPoints, setPolygonPoints] = useState<Point[]>([]);
   const [isDrawingPolygon, setIsDrawingPolygon] = useState(false);
   
-  // 关键点绘制状态
+  // Keypoint drawing state
   const [keypoints, setKeypoints] = useState<Point[]>([]);
   const [isDrawingKeypoints, setIsDrawingKeypoints] = useState(false);
   
-  // 标注编辑状态
+  // Annotation editing state
   const [isDraggingAnnotation, setIsDraggingAnnotation] = useState(false);
   const [dragStart, setDragStart] = useState<Point | null>(null);
   const [dragOffset, setDragOffset] = useState<Point | null>(null);
   const [draggedAnnotationId, setDraggedAnnotationId] = useState<number | null>(null);
   
-  // Bbox调整状态（拖拽角或边）
+  // Bbox resize state (dragging corner or edge)
   const [isResizingBbox, setIsResizingBbox] = useState(false);
   const [resizeHandle, setResizeHandle] = useState<string | null>(null); // 'nw', 'ne', 'sw', 'se', 'n', 's', 'e', 'w'
   
-  // Polygon/Keypoint调整状态（拖拽顶点/点）
+  // Polygon/Keypoint adjust state (dragging vertex/point)
   const [draggedPointIndex, setDraggedPointIndex] = useState<number | null>(null);
 
-  // Hover 状态，用于改变指针
+  // Hover state for changing cursor
   const [hoverResizeHandle, setHoverResizeHandle] = useState<string | null>(null);
   const [hoverPointIndex, setHoverPointIndex] = useState<number | null>(null);
   
   const [isSpacePressed, setIsSpacePressed] = useState(false);
   
-  // 如果未选中类别且有类别，默认选中第一个
+  // If no class selected and classes exist, default to first class
   const effectiveClassId = selectedClassId || (classes.length > 0 ? classes[0].id : null);
   const [imageLoading, setImageLoading] = useState(true);
   const [imageError, setImageError] = useState<string | null>(null);
 
-  // 加载图像
+  // Load image
   useEffect(() => {
     setImageLoading(true);
     setImageError(null);
     
     const img = new Image();
-    img.crossOrigin = 'anonymous'; // 允许跨域加载
+    img.crossOrigin = 'anonymous'; // Allow cross-origin loading
     
     img.onload = () => {
       console.log('[Canvas] Image loaded:', img.width, 'x', img.height);
@@ -101,7 +101,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
       setImageLoading(false);
       setImageError(null);
       
-      // 计算初始缩放和偏移，使图像居中
+      // Calculate initial scale and offset to center image
       if (containerRef.current) {
         const container = containerRef.current;
         const containerWidth = container.clientWidth;
@@ -109,7 +109,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         
         const scaleX = containerWidth / img.width;
         const scaleY = containerHeight / img.height;
-        const initialScale = Math.min(scaleX, scaleY, 1); // 不放大超过原始尺寸
+        const initialScale = Math.min(scaleX, scaleY, 1); // Don't scale up beyond original size
         
         setScale(initialScale);
         setOffset({
@@ -117,7 +117,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
           y: (containerHeight - img.height * initialScale) / 2
         });
       }
-      // 使用 setTimeout 确保在下一帧调用 draw，避免依赖循环
+      // Use setTimeout to ensure draw is called in next frame, avoid dependency cycle
       setTimeout(() => {
         if (imageRef.current) {
           draw();
@@ -128,7 +128,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     img.onerror = (error) => {
       console.error('[Canvas] Image load error:', error);
       setImageLoading(false);
-      // 构建图像 URL 用于错误提示
+      // Build image URL for error message
       let imagePath = image.path;
       if (!imagePath.includes('raw/')) {
         imagePath = `raw/${imagePath}`;
@@ -141,24 +141,24 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
       const imageUrl = image.path.startsWith('http') 
         ? image.path 
         : `${API_BASE_URL.replace('/api', '')}/images/${projectId}/${imagePath}`;
-      setImageError(`图片加载失败: ${imageUrl}`);
+      setImageError(`Image load failed: ${imageUrl}`);
     };
     
-    // 构建图像 URL
-    // image.path 格式应该是 raw/filename
+    // Build image URL
+    // image.path format should be raw/filename
     let imagePath = image.path;
-    // 如果路径不包含 raw/，添加它（兼容旧数据）
+    // If path doesn't contain raw/, add it (for compatibility with old data)
     if (!imagePath.includes('raw/')) {
       imagePath = `raw/${imagePath}`;
     } else if (imagePath.startsWith(projectId + '/')) {
-      // 如果包含 project_id，移除它
+      // If contains project_id, remove it
       const rawIndex = imagePath.indexOf('raw/');
       if (rawIndex !== -1) {
         imagePath = imagePath.substring(rawIndex);
       }
     }
-    // API_BASE_URL 已经是 http://localhost:8000/api
-    // 图片服务路径是 /api/images/{project_id}/{image_path}
+    // API_BASE_URL is already http://localhost:8000/api
+    // Image service path is /api/images/{project_id}/{image_path}
     const imageUrl = image.path.startsWith('http') 
       ? image.path 
       : `${API_BASE_URL}/images/${projectId}/${imagePath}`;
@@ -168,7 +168,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [image, projectId]);
 
-  // 坐标转换：屏幕坐标 -> 图像坐标
+  // Coordinate conversion: screen coordinates -> image coordinates
   const screenToImage = useCallback((screenX: number, screenY: number): Point => {
     if (!imageRef.current) return { x: 0, y: 0 };
     
@@ -181,7 +181,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     };
   }, [offset, scale]);
 
-  // 坐标转换：图像坐标 -> 屏幕坐标（预留功能）
+  // Coordinate conversion: image coordinates -> screen coordinates (reserved feature)
   // const imageToScreen = useCallback((imageX: number, imageY: number): Point => {
   //   return {
   //     x: imageX * scale + offset.x,
@@ -189,24 +189,24 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   //   };
   // }, [offset, scale]);
 
-  // 获取点击位置在bbox上的哪个区域（用于调整大小）
+  // Get which region of bbox the click position is on (for resizing)
   const getBboxHandle = useCallback((bbox: { x_min: number; y_min: number; x_max: number; y_max: number }, point: Point): string | null => {
     const x1 = bbox.x_min * scale + offset.x;
     const y1 = bbox.y_min * scale + offset.y;
     const x2 = bbox.x_max * scale + offset.x;
     const y2 = bbox.y_max * scale + offset.y;
-    const threshold = 15; // 增加阈值以匹配增大的手柄尺寸
+    const threshold = 15; // Increase threshold to match enlarged handle size
     
     const screenX = point.x * scale + offset.x;
     const screenY = point.y * scale + offset.y;
     
-    // 检查四个角
+    // Check four corners
     if (Math.abs(screenX - x1) < threshold && Math.abs(screenY - y1) < threshold) return 'nw';
     if (Math.abs(screenX - x2) < threshold && Math.abs(screenY - y1) < threshold) return 'ne';
     if (Math.abs(screenX - x1) < threshold && Math.abs(screenY - y2) < threshold) return 'sw';
     if (Math.abs(screenX - x2) < threshold && Math.abs(screenY - y2) < threshold) return 'se';
     
-    // 检查边
+    // Check edges
     if (Math.abs(screenX - (x1 + x2) / 2) < threshold && Math.abs(screenY - y1) < threshold) return 'n';
     if (Math.abs(screenX - (x1 + x2) / 2) < threshold && Math.abs(screenY - y2) < threshold) return 's';
     if (Math.abs(screenX - x1) < threshold && Math.abs(screenY - (y1 + y2) / 2) < threshold) return 'w';
@@ -215,8 +215,8 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     return null;
   }, [offset, scale]);
 
-  // 获取点击位置在多边形/关键点的哪个点上
-  // 使用图像坐标的距离阈值（像素单位），阈值应该足够大以匹配增大的点尺寸
+  // Get which point of polygon/keypoints the click position is on
+  // Use image coordinate distance threshold (in pixels), threshold should be large enough to match enlarged point size
   const getClickedPointIndex = useCallback((points: Point[], clickPoint: Point, threshold: number = 20): number | null => {
     let minDistance = Infinity;
     let closestIndex: number | null = null;
@@ -225,14 +225,14 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
       const distance = Math.sqrt(
         Math.pow(clickPoint.x - points[i].x, 2) + Math.pow(clickPoint.y - points[i].y, 2)
       );
-      // 找到最近的点
+      // Find closest point
       if (distance < minDistance) {
         minDistance = distance;
         closestIndex = i;
       }
     }
     
-    // 如果最近的点在阈值内（图像坐标），返回索引
+    // If closest point is within threshold (image coordinates), return index
     if (closestIndex !== null && minDistance < threshold) {
       return closestIndex;
     }
@@ -240,13 +240,13 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     return null;
   }, []);
 
-  // 绘制函数
+  // Draw function
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     
     if (!imageRef.current) {
-      // 如果图片还没加载，只清空画布
+      // If image not loaded yet, only clear canvas
       const ctx = canvas.getContext('2d');
       if (!ctx || !containerRef.current) return;
       canvas.width = containerRef.current.clientWidth;
@@ -263,21 +263,21 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     const container = containerRef.current;
     if (!container) return;
 
-    // 设置画布尺寸
+    // Set canvas size
     canvas.width = container.clientWidth;
     canvas.height = container.clientHeight;
 
-    // 清空画布
+    // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // 绘制图像
+    // Draw image
     ctx.save();
     ctx.translate(offset.x, offset.y);
     ctx.scale(scale, scale);
     ctx.drawImage(img, 0, 0);
     ctx.restore();
 
-    // 绘制标注
+    // Draw annotations
     if (showAnnotations) {
       annotations.forEach((ann) => {
         const classObj = classes.find(c => c.id === ann.classId);
@@ -286,7 +286,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
 
         ctx.strokeStyle = isSelected ? '#ffff00' : color;
         ctx.lineWidth = isSelected ? 3 : 2;
-        ctx.fillStyle = color + '33'; // 半透明填充
+        ctx.fillStyle = color + '33'; // Semi-transparent fill
 
         if (ann.type === 'bbox') {
           const data = ann.data;
@@ -300,9 +300,9 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
           ctx.fillRect(x1, y1, width, height);
           ctx.strokeRect(x1, y1, width, height);
           
-          // 如果选中，绘制调整手柄（增大尺寸）
+          // If selected, draw resize handles (increased size)
           if (isSelected && tool === 'select') {
-            const handleSize = 12; // 从8增加到12
+            const handleSize = 12; // Increased from 8 to 12
             const handles = [
               { x: x1, y: y1, type: 'nw' },
               { x: x2, y: y1, type: 'ne' },
@@ -316,10 +316,10 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
             
             handles.forEach(handle => {
               const isHovered = hoverResizeHandle === handle.type && ann.id === selectedAnnotationId;
-              ctx.fillStyle = isHovered ? '#ffaa00' : '#ffff00'; // hover时使用更深的黄色
+              ctx.fillStyle = isHovered ? '#ffaa00' : '#ffff00'; // Use deeper yellow on hover
               ctx.strokeStyle = '#000000';
-              ctx.lineWidth = isHovered ? 3 : 2; // hover时边框更粗
-              const size = isHovered ? handleSize + 2 : handleSize; // hover时稍大
+              ctx.lineWidth = isHovered ? 3 : 2; // Thicker border on hover
+              const size = isHovered ? handleSize + 2 : handleSize; // Slightly larger on hover
               ctx.fillRect(handle.x - size / 2, handle.y - size / 2, size, size);
               ctx.strokeRect(handle.x - size / 2, handle.y - size / 2, size, size);
             });
@@ -336,16 +336,16 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
             ctx.fill();
             ctx.stroke();
             
-            // 如果选中，绘制顶点手柄（增大尺寸）
+            // If selected, draw vertex handles (increased size)
             if (isSelected && tool === 'select') {
               points.forEach((point: any, index: number) => {
                 const px = (point.x || point[0]) * scale + offset.x;
                 const py = (point.y || point[1]) * scale + offset.y;
                 const isHovered = hoverPointIndex === index && ann.id === selectedAnnotationId;
-                ctx.fillStyle = isHovered ? '#ffaa00' : '#ffff00'; // hover时使用更深的黄色
+                ctx.fillStyle = isHovered ? '#ffaa00' : '#ffff00'; // Use deeper yellow on hover
                 ctx.strokeStyle = '#000000';
-                ctx.lineWidth = isHovered ? 3 : 2; // hover时边框更粗
-                const radius = isHovered ? 11 : 9; // hover时稍大
+                ctx.lineWidth = isHovered ? 3 : 2; // Thicker border on hover
+                const radius = isHovered ? 11 : 9; // Slightly larger on hover
                 ctx.beginPath();
                 ctx.arc(px, py, radius, 0, Math.PI * 2);
                 ctx.fill();
@@ -363,7 +363,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
             ctx.fillStyle = isHovered ? '#ffaa00' : (isSelected ? '#ffff00' : color);
             ctx.strokeStyle = isSelected ? '#000000' : '#ffffff';
             ctx.lineWidth = isHovered ? 3 : (isSelected ? 2 : 1);
-            // 增大选中时的关键点大小
+            // Increase keypoint size when selected
             const radius = isHovered ? 12 : (isSelected && tool === 'select' ? 10 : 5);
             ctx.beginPath();
             ctx.arc(x, y, radius, 0, Math.PI * 2);
@@ -374,7 +374,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
       });
     }
 
-    // 绘制正在绘制的矩形框
+    // Draw bounding box being drawn
     if (bboxStart && bboxCurrent && tool === 'bbox') {
       ctx.strokeStyle = '#4a9eff';
       ctx.lineWidth = 2;
@@ -392,9 +392,9 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
       ctx.setLineDash([]);
     }
 
-    // 绘制正在绘制的多边形
+    // Draw polygon being drawn
     if (polygonPoints.length > 0 && tool === 'polygon' && isDrawingPolygon) {
-      // 绘制已确定的边
+      // Draw confirmed edges
       if (polygonPoints.length > 1) {
         ctx.strokeStyle = '#4a9eff';
         ctx.lineWidth = 2;
@@ -412,7 +412,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         ctx.stroke();
       }
       
-      // 绘制预览线：从最后一个点到鼠标位置
+      // Draw preview line: from last point to mouse position
       if (polygonPoints.length > 0) {
         const lastPoint = polygonPoints[polygonPoints.length - 1];
         const lastX = lastPoint.x * scale + offset.x;
@@ -425,7 +425,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         ctx.moveTo(lastX, lastY);
         ctx.lineTo(mousePos.x, mousePos.y);
         
-        // 如果点数>=3，绘制回到起点的预览线（闭合预览）
+        // If points >= 3, draw preview line back to start point (close preview)
         if (polygonPoints.length >= 3) {
           const firstPoint = polygonPoints[0];
           const firstX = firstPoint.x * scale + offset.x;
@@ -437,31 +437,31 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         ctx.setLineDash([]);
       }
 
-      // 绘制已放置的点（增大尺寸）
+      // Draw placed points (increased size)
       polygonPoints.forEach((point, index) => {
         const x = point.x * scale + offset.x;
         const y = point.y * scale + offset.y;
-        ctx.fillStyle = index === 0 ? '#ffff00' : '#EB814F'; // 起点用黄色高亮
+        ctx.fillStyle = index === 0 ? '#ffff00' : '#EB814F'; // Highlight start point with yellow
         ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 2; // 增加边框宽度
+        ctx.lineWidth = 2; // Increase border width
         ctx.beginPath();
-        ctx.arc(x, y, 7, 0, Math.PI * 2); // 从5增加到7
+        ctx.arc(x, y, 7, 0, Math.PI * 2); // Increased from 5 to 7
         ctx.fill();
         ctx.stroke();
       });
       
-      // 在鼠标位置显示预览点
+      // Show preview point at mouse position
       ctx.fillStyle = '#EB814F';
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 1;
       ctx.setLineDash([]);
       ctx.beginPath();
-      ctx.arc(mousePos.x, mousePos.y, 5, 0, Math.PI * 2); // 从4增加到5
+      ctx.arc(mousePos.x, mousePos.y, 5, 0, Math.PI * 2); // Increased from 4 to 5
       ctx.fill();
       ctx.stroke();
     }
 
-    // 绘制正在绘制的关键点（增大尺寸）
+    // Draw keypoints being drawn (increased size)
     if (keypoints.length > 0 && tool === 'keypoint') {
       keypoints.forEach((point) => {
         const x = point.x * scale + offset.x;
@@ -470,12 +470,12 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(x, y, 7, 0, Math.PI * 2); // 从5增加到7
+        ctx.arc(x, y, 7, 0, Math.PI * 2); // Increased from 5 to 7
         ctx.fill();
         ctx.stroke();
       });
       
-      // 如果有多个关键点，绘制连接线（可选）
+      // If multiple keypoints, draw connection lines (optional)
       if (keypoints.length > 1 && isDrawingKeypoints) {
         ctx.strokeStyle = '#4a9eff';
         ctx.lineWidth = 1;
@@ -495,7 +495,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
       }
     }
 
-    // 绘制十字准星
+    // Draw crosshair
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 1;
     ctx.setLineDash([2, 2]);
@@ -529,7 +529,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     draw();
   }, [draw]);
 
-  // 鼠标事件处理
+  // Mouse event handlers
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -547,7 +547,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
       }));
       setPanStart({ x, y });
     } else if (isDraggingAnnotation && draggedAnnotationId) {
-      // 拖拽移动标注
+      // Drag and move annotation
       const imgPoint = screenToImage(x, y);
       if (dragOffset && dragStart) {
         const dx = imgPoint.x - dragStart.x;
@@ -563,7 +563,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
               x_max: data.x_max + dx,
               y_max: data.y_max + dy
             };
-            // 限制在图像范围内
+            // Limit within image bounds
             if (imageRef.current) {
               newData.x_min = Math.max(0, Math.min(imageRef.current.width, newData.x_min));
               newData.y_min = Math.max(0, Math.min(imageRef.current.height, newData.y_min));
@@ -576,7 +576,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
               x: (p.x || p[0]) + dx,
               y: (p.y || p[1]) + dy
             }));
-            // 限制在图像范围内
+            // Limit within image bounds
             if (imageRef.current) {
               points.forEach((p: Point) => {
                 p.x = Math.max(0, Math.min(imageRef.current!.width, p.x));
@@ -589,7 +589,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
               x: (p.x || p[0]) + dx,
               y: (p.y || p[1]) + dy
             }));
-            // 限制在图像范围内
+            // Limit within image bounds
             if (imageRef.current) {
               points.forEach((p: Point) => {
                 p.x = Math.max(0, Math.min(imageRef.current!.width, p.x));
@@ -602,7 +602,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         setDragStart(imgPoint);
       }
     } else if (isResizingBbox && draggedAnnotationId && resizeHandle) {
-      // 调整bbox大小
+      // Resize bbox
       const imgPoint = screenToImage(x, y);
       const annotation = annotations.find(a => a.id === draggedAnnotationId);
       if (annotation && annotation.type === 'bbox') {
@@ -614,7 +614,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         if (resizeHandle.includes('n')) newData.y_min = imgPoint.y;
         if (resizeHandle.includes('s')) newData.y_max = imgPoint.y;
         
-        // 确保最小尺寸和边界
+        // Ensure minimum size and bounds
         if (imageRef.current) {
           newData.x_min = Math.max(0, Math.min(imageRef.current.width, newData.x_min));
           newData.y_min = Math.max(0, Math.min(imageRef.current.height, newData.y_min));
@@ -628,13 +628,13 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         onAnnotationUpdate(draggedAnnotationId, { data: newData });
       }
     } else if (draggedPointIndex !== null && draggedAnnotationId) {
-      // 拖拽多边形顶点或关键点
+      // Drag polygon vertex or keypoint
       const imgPoint = screenToImage(x, y);
       const annotation = annotations.find(a => a.id === draggedAnnotationId);
       if (annotation && (annotation.type === 'polygon' || annotation.type === 'keypoint')) {
         const points = [...(annotation.data.points || [])];
         if (points[draggedPointIndex] !== undefined) {
-          // 限制在图像范围内
+          // Limit within image bounds
           if (imageRef.current) {
             imgPoint.x = Math.max(0, Math.min(imageRef.current.width, imgPoint.x));
             imgPoint.y = Math.max(0, Math.min(imageRef.current.height, imgPoint.y));
@@ -647,12 +647,12 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
       const imgPoint = screenToImage(x, y);
       setBboxCurrent(imgPoint);
     } else if (tool === 'polygon' && polygonPoints.length > 0) {
-      draw(); // 重绘以显示预览线
+      draw(); // Redraw to show preview line
     } else if (tool === 'keypoint' && isDrawingKeypoints) {
-      draw(); // 重绘关键点
+      draw(); // Redraw keypoints
     }
 
-    // Hover 处理（仅在选择模式，用于指针反馈）
+    // Hover handling (only in select mode, for cursor feedback)
     if (tool === 'select' && !isPanning && !isDraggingAnnotation && !isResizingBbox && draggedPointIndex === null) {
       const imgPoint = screenToImage(x, y);
       let hoverHandle: string | null = null;
@@ -686,7 +686,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
 
   const handleMouseDown = async (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (isSpacePressed || e.button === 1) {
-      // 开始平移
+      // Start panning
       setIsPanning(true);
       setPanStart({ x: e.clientX, y: e.clientY });
       return;
@@ -700,12 +700,12 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     const imgPoint = screenToImage(x, y);
 
     if (tool === 'select') {
-      // 检查是否点击了标注
+      // Check if clicked on annotation
       let clickedAnnotation: Annotation | null = null;
       let clickedHandle: string | null = null;
       let clickedPointIndex: number | null = null;
       
-      // 优先检查已选中的标注的编辑点（手柄和顶点）
+      // Prioritize checking edit points (handles and vertices) of selected annotation
       if (selectedAnnotationId) {
         const selectedAnn = annotations.find(a => a.id === selectedAnnotationId);
         if (selectedAnn) {
@@ -737,9 +737,9 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         }
       }
       
-      // 如果没有点击到编辑点，检查是否点击了标注本身
+      // If didn't click on edit point, check if clicked on annotation itself
       if (!clickedHandle && clickedPointIndex === null) {
-        // 按Z顺序从后往前检查（后绘制的在前）
+        // Check from back to front in Z-order (later drawn ones are on top)
         for (let i = annotations.length - 1; i >= 0; i--) {
           const ann = annotations[i];
           
@@ -755,7 +755,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
           } else if (ann.type === 'polygon') {
             const points = ann.data.points || [];
             if (points.length >= 3) {
-              // 检查是否在多边形内
+              // Check if inside polygon
               let inside = false;
               for (let j = 0, k = points.length - 1; j < points.length; k = j++) {
                 const p1 = points[j];
@@ -776,7 +776,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
             }
           } else if (ann.type === 'keypoint') {
             const points = ann.data.points || [];
-            // 检查是否点击在关键点附近（未选中时也可以点击点来选中）
+            // Check if clicked near keypoint (can click point to select even when not selected)
             const pointIndex = getClickedPointIndex(points.map((p: any) => ({
               x: p.x || p[0],
               y: p.y || p[1]
@@ -791,53 +791,53 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         }
       }
       
-      // 处理点击 - 优先处理编辑点
+      // Handle click - prioritize edit points
       if (clickedHandle && clickedAnnotation) {
-        // 开始调整bbox大小
+        // Start resizing bbox
         setIsResizingBbox(true);
         setResizeHandle(clickedHandle);
         setDraggedAnnotationId(clickedAnnotation.id!);
-        setIsDraggingAnnotation(false); // 不是移动
+        setIsDraggingAnnotation(false); // Not moving
         setDraggedPointIndex(null);
         onAnnotationSelect(clickedAnnotation.id!);
       } else if (clickedPointIndex !== null && clickedAnnotation) {
-        // 开始拖拽顶点/点（不是整体移动）
-        // 立即设置拖拽状态，确保点击后能立即响应鼠标移动
+        // Start dragging vertex/point (not moving entire annotation)
+        // Set drag state immediately to ensure immediate response to mouse movement after click
         setDraggedPointIndex(clickedPointIndex);
         setDraggedAnnotationId(clickedAnnotation.id!);
         setIsDraggingAnnotation(false);
         setIsResizingBbox(false);
         setResizeHandle(null);
-        // 记录初始点击位置，用于后续拖拽计算
+        // Record initial click position for subsequent drag calculations
         setDragStart(imgPoint);
         setDragOffset(imgPoint);
         onAnnotationSelect(clickedAnnotation.id!);
       } else if (clickedAnnotation && clickedAnnotation.id) {
-        // 选中标注（点击了标注但没点击编辑点）
+        // Select annotation (clicked annotation but not edit point)
         const wasAlreadySelected = clickedAnnotation.id === selectedAnnotationId;
         onAnnotationSelect(clickedAnnotation.id);
         
-        // 只有在点击中心区域时才准备移动（不是点击手柄或顶点）
+        // Only prepare to move when clicking center area (not clicking handle or vertex)
         if (wasAlreadySelected && !clickedHandle && clickedPointIndex === null) {
-          // 再次点击已选中的标注，准备移动
+          // Click again on already selected annotation, prepare to move
           setDraggedAnnotationId(clickedAnnotation.id);
           setIsDraggingAnnotation(true);
           setDragStart(imgPoint);
           setDragOffset(imgPoint);
         } else {
-          // 新选中，不立即移动
+          // Newly selected, don't move immediately
           setIsDraggingAnnotation(false);
           setIsResizingBbox(false);
           setDraggedPointIndex(null);
           setResizeHandle(null);
         }
       } else {
-        // 点击空白区域
+        // Clicked blank area
         exitEditMode(false, true);
       }
     } else if (tool === 'bbox') {
       if (!effectiveClassId) {
-        alert('请先选择一个类别');
+        alert('Please select a class first');
         return;
       }
       if (!bboxStart) {
@@ -846,35 +846,35 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
       }
     } else if (tool === 'polygon') {
       if (!effectiveClassId) {
-        alert('请先选择一个类别');
+        alert('Please select a class first');
         return;
       }
       if (!isDrawingPolygon) {
         setIsDrawingPolygon(true);
         setPolygonPoints([imgPoint]);
       } else {
-        // 检查是否点击了起点（闭合）
+        // Check if clicked on starting point (close polygon)
         const firstPoint = polygonPoints[0];
         const distance = Math.sqrt(
           Math.pow(imgPoint.x - firstPoint.x, 2) + Math.pow(imgPoint.y - firstPoint.y, 2)
         );
         
-        // 使用图像坐标的距离阈值（约15像素，根据缩放调整）
+        // Use distance threshold in image coordinates (approximately 15 pixels, adjusted for zoom)
         const threshold = 15;
         if (distance < threshold && polygonPoints.length >= 3) {
-          // 闭合多边形，不添加新点，直接完成
+          // Close polygon, don't add new point, finish directly
           await finishPolygon();
         } else {
-          // 添加新点
+          // Add new point
           setPolygonPoints(prev => [...prev, imgPoint]);
         }
       }
     } else if (tool === 'keypoint') {
       if (!effectiveClassId) {
-        alert('请先选择一个类别');
+        alert('Please select a class first');
         return;
       }
-      // 添加关键点
+      // Add keypoint
       setKeypoints(prev => [...prev, imgPoint]);
       if (!isDrawingKeypoints) {
         setIsDrawingKeypoints(true);
@@ -882,12 +882,12 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     }
   };
 
-  // 退出编辑模式，可选择是否保存、是否取消选中
+  // Exit edit mode, optionally save and/or clear selection
   const exitEditMode = (clearSelection = false, saveCurrent = true) => {
     if (saveCurrent && draggedAnnotationId) {
       const annotation = annotations.find(a => a.id === draggedAnnotationId);
       if (annotation) {
-        // 确保data是对象格式
+        // Ensure data is object format
         const dataObj = typeof annotation.data === 'string'
           ? JSON.parse(annotation.data)
           : annotation.data;
@@ -925,7 +925,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
       return;
     }
 
-    // 右键取消当前绘制
+    // Right-click to cancel current drawing
     if (e.button === 2) {
       if (tool === 'bbox') {
         setBboxStart(null);
@@ -934,14 +934,14 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         setPolygonPoints([]);
         setIsDrawingPolygon(false);
       } else if (tool === 'keypoint' && isDrawingKeypoints) {
-        // 右键取消关键点绘制（不保存）
+        // Right-click to cancel keypoint drawing (don't save)
         setKeypoints([]);
         setIsDrawingKeypoints(false);
       }
       return;
     }
 
-    // 结束拖拽或调整
+    // End dragging or resizing
     if (isDraggingAnnotation || isResizingBbox || draggedPointIndex !== null) {
       exitEditMode(false, true);
       return;
@@ -952,7 +952,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     }
   };
 
-  // 双击：优先完成绘制，其次退出编辑
+  // Double-click: prioritize finishing drawing, then exit edit mode
   const handleDoubleClick = () => {
     if (tool === 'polygon' && isDrawingPolygon && polygonPoints.length >= 3) {
       finishPolygon();
@@ -963,7 +963,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
       return;
     }
 
-    // 非绘制状态下，双击退出编辑并清空临时绘制
+    // In non-drawing state, double-click to exit edit mode and clear temporary drawing
     exitEditMode(true, true);
     setBboxStart(null);
     setBboxCurrent(null);
@@ -985,7 +985,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     const x_max = Math.max(bboxStart.x, bboxCurrent.x);
     const y_max = Math.max(bboxStart.y, bboxCurrent.y);
 
-    // 检查是否有效（最小尺寸）
+    // Check if valid (minimum size)
     if (Math.abs(x_max - x_min) < 5 || Math.abs(y_max - y_min) < 5) {
       setBboxStart(null);
       setBboxCurrent(null);
@@ -998,7 +998,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
       classId: effectiveClassId
     };
 
-    // 保存到服务器
+    // Save to server
     try {
       const response = await fetch(`${API_BASE_URL}/images/${image.id}/annotations`, {
         method: 'POST',
@@ -1064,7 +1064,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     setIsDrawingPolygon(false);
   }, [polygonPoints, effectiveClassId, image.id, onAnnotationCreate]);
 
-  // 完成关键点标注
+  // Finish keypoint annotation
   const finishKeypoints = useCallback(async () => {
     if (keypoints.length === 0 || !effectiveClassId) {
       setKeypoints([]);
@@ -1104,7 +1104,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     setIsDrawingKeypoints(false);
   }, [keypoints, effectiveClassId, image.id, onAnnotationCreate]);
 
-  // 滚轮缩放
+  // Mouse wheel zoom
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     const rect = canvasRef.current?.getBoundingClientRect();
@@ -1116,7 +1116,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
     const newScale = Math.max(0.1, Math.min(5, scale * zoomFactor));
 
-    // 以鼠标位置为中心缩放
+    // Zoom centered on mouse position
     const imgPoint = screenToImage(mouseX, mouseY);
     const newOffset = {
       x: mouseX - imgPoint.x * newScale,
@@ -1127,14 +1127,14 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     setOffset(newOffset);
   };
 
-  // 键盘事件
+  // Keyboard events
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.code === 'Space') {
         e.preventDefault();
         setIsSpacePressed(true);
       } else if (e.key === 'Escape') {
-        // ESC 取消当前绘制或退出编辑模式
+        // ESC cancel current drawing or exit edit mode
         if (tool === 'bbox') {
           setBboxStart(null);
           setBboxCurrent(null);
@@ -1153,9 +1153,9 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
             setIsDrawingKeypoints(false);
           }
         } else if (tool === 'select') {
-          // ESC 退出编辑模式：取消选中、停止拖拽/调整
+          // ESC exit edit mode: clear selection, stop dragging/resizing
           if (isDraggingAnnotation || isResizingBbox || draggedPointIndex !== null) {
-            // 如果正在编辑，取消编辑但不取消选中
+            // If editing, cancel editing but don't clear selection
             setIsDraggingAnnotation(false);
             setIsResizingBbox(false);
             setDraggedPointIndex(null);
@@ -1163,13 +1163,13 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
             setDragStart(null);
             setDragOffset(null);
           } else {
-            // 如果不在编辑，取消选中
+            // If not editing, clear selection
             onAnnotationSelect(null);
             setDraggedAnnotationId(null);
           }
         }
       } else if (e.key === 'Enter' || e.key === ' ') {
-        // Enter 完成绘制
+        // Enter to finish drawing
         if (tool === 'polygon' && polygonPoints.length >= 3) {
           e.preventDefault();
           finishPolygon();
@@ -1178,7 +1178,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
           finishKeypoints();
         }
       } else if (e.key === 'Backspace' || e.key === 'Delete') {
-        // Backspace/Delete 删除最后一个点
+        // Backspace/Delete to delete last point
         if (tool === 'polygon' && polygonPoints.length > 0) {
           e.preventDefault();
           setPolygonPoints(prev => prev.slice(0, -1));
@@ -1204,9 +1204,9 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     };
   }, [tool, polygonPoints, isDrawingPolygon, keypoints, isDrawingKeypoints, finishPolygon, finishKeypoints]);
 
-  // 重置绘制状态当切换工具时
+  // Reset drawing state when switching tools
   useEffect(() => {
-    // 如果正在绘制，取消当前绘制
+    // If currently drawing, cancel current drawing
     if (tool !== 'bbox') {
       setBboxStart(null);
       setBboxCurrent(null);
@@ -1219,13 +1219,13 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
       setKeypoints([]);
       setIsDrawingKeypoints(false);
     }
-    // 切换工具时取消选中
+    // Clear selection when switching tools
     if (tool !== 'select') {
       onAnnotationSelect(null);
     }
   }, [tool, onAnnotationSelect]);
 
-  // 获取绘制提示文本
+  // Get drawing hint text
   const getDrawingHint = () => {
     if (tool === 'bbox' && bboxStart) {
       return '拖动鼠标绘制矩形，释放完成';
@@ -1245,12 +1245,12 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
 
   const drawingHint = getDrawingHint();
 
-  // 更新容器鼠标样式
+  // Update container mouse cursor style
   useEffect(() => {
     if (!containerRef.current) return;
     const container = containerRef.current;
     
-    // 清除所有鼠标样式类
+    // Clear all mouse cursor style classes
     container.classList.remove(
       'cursor-drawing', 'cursor-editing', 'cursor-moving', 'cursor-resizing',
       'cursor-default',
@@ -1258,22 +1258,22 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
       'resizing-ne', 'resizing-sw', 'resizing-se'
     );
     
-    // 根据当前状态设置鼠标样式
+    // Set mouse cursor style based on current state
     if (tool === 'select') {
       if (isDraggingAnnotation) {
         container.classList.add('cursor-moving');
       } else if (isResizingBbox && resizeHandle) {
         container.classList.add('cursor-resizing');
-        // 根据调整方向设置具体的resize样式
+        // Set specific resize style based on resize direction
         container.classList.add(`resizing-${resizeHandle}`);
       } else if (draggedPointIndex !== null) {
         container.classList.add('cursor-editing');
       } else if (hoverResizeHandle) {
-        // 悬停在调整手柄上
+        // Hovering over resize handle
         container.classList.add('cursor-resizing');
         container.classList.add(`resizing-${hoverResizeHandle}`);
       } else if (hoverPointIndex !== null) {
-        // 悬停在点上
+        // Hovering over point
         container.classList.add('cursor-editing');
       } else if (selectedAnnotationId) {
         container.classList.add('cursor-editing');
@@ -1301,7 +1301,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
               onClick={() => {
                 setImageLoading(true);
                 setImageError(null);
-                // 重新触发加载
+                // Retry loading
                 const img = new Image();
                 let imagePath = image.path;
                 if (!imagePath.includes('raw/')) {
@@ -1320,7 +1320,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
                   setImageLoading(false);
                   draw();
                 };
-                img.onerror = () => setImageError(`重试失败: ${imageUrl}`);
+                img.onerror = () => setImageError(`Retry failed: ${imageUrl}`);
                 img.src = imageUrl;
               }}
               className="retry-button"
@@ -1343,7 +1343,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         onMouseUp={handleMouseUp}
         onDoubleClick={handleDoubleClick}
         onWheel={handleWheel}
-        onContextMenu={(e) => e.preventDefault()} // 禁用右键菜单
+        onContextMenu={(e) => e.preventDefault()} // Disable right-click context menu
       />
     </div>
   );

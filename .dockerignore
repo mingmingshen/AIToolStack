@@ -20,7 +20,7 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# React build (会在 Dockerfile 中构建)
+# React build (will be built in Dockerfile)
 frontend/build/
 
 # Database
@@ -29,7 +29,7 @@ frontend/build/
 *.sqlite3
 data/
 
-# Datasets (使用 volume 挂载)
+# Datasets (mounted via volume)
 datasets/
 
 # IDE
@@ -79,7 +79,7 @@ tmp/
 temp/
 *.tmp
 
-# Model files (如果太大，可以在运行时下载)
+# Model files (if too large, can be downloaded at runtime)
 *.pt
 *.onnx
 *.npy

@@ -4,7 +4,7 @@ import { API_BASE_URL } from '../config';
 import { IoRefresh, IoAdd, IoFolder, IoTrash, IoClose, IoWarning } from 'react-icons/io5';
 import './ProjectSelector.css';
 
-// 图标组件包装器，解决 TypeScript 类型问题
+// Icon component wrapper to resolve TypeScript type issues
 const Icon: React.FC<{ component: React.ComponentType<any> }> = ({ component: Component }) => {
   return <Component />;
 };
@@ -66,7 +66,7 @@ export const ProjectSelector: React.FC<ProjectSelectorProps> = ({
         setProjectDesc('');
         setShowCreateModal(false);
         onRefresh();
-        // 可选：自动打开新创建的项目
+        // Optional: automatically open newly created project
         // onSelect(newProject);
       } else {
         const errorData = await response.json().catch(() => ({ detail: t('project.createFailed') }));
@@ -74,7 +74,7 @@ export const ProjectSelector: React.FC<ProjectSelectorProps> = ({
       }
     } catch (error) {
       console.error('Failed to create project:', error);
-      alert(`${t('project.createFailed')}: ${t('common.connectionError', '无法连接到服务器')}`);
+      alert(`${t('project.createFailed')}: ${t('common.connectionError', 'Unable to connect to server')}`);
     } finally {
       setIsCreating(false);
     }
@@ -87,7 +87,7 @@ export const ProjectSelector: React.FC<ProjectSelectorProps> = ({
   };
 
   const handleDeleteProject = (e: React.MouseEvent, project: Project) => {
-    e.stopPropagation(); // 防止触发项目选择
+    e.stopPropagation(); // Prevent triggering project selection
     setDeleteConfirm({ project, show: true });
   };
 
@@ -109,7 +109,7 @@ export const ProjectSelector: React.FC<ProjectSelectorProps> = ({
       }
     } catch (error) {
       console.error('Failed to delete project:', error);
-      alert(`${t('project.deleteFailed')}: ${t('common.connectionError', '无法连接到服务器')}`);
+      alert(`${t('project.deleteFailed')}: ${t('common.connectionError', 'Unable to connect to server')}`);
     } finally {
       setIsDeleting(false);
     }

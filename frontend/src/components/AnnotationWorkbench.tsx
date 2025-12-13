@@ -12,7 +12,7 @@ import { API_BASE_URL } from '../config';
 import { IoArrowBack, IoDownload, IoChevronDown, IoCloudUpload } from 'react-icons/io5';
 import './AnnotationWorkbench.css';
 
-// 图标组件包装器，解决 TypeScript 类型问题
+// Icon component wrapper to resolve TypeScript type issues
 const Icon: React.FC<{ component: React.ComponentType<any> }> = ({ component: Component }) => {
   return <Component />;
 };
@@ -80,7 +80,7 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
   const annotationCacheRef = React.useRef<Record<number, Annotation[]>>({});
   const annotationsAbortRef = React.useRef<AbortController | null>(null);
 
-  // 点击外部关闭下拉菜单
+  // Close dropdown menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
@@ -97,7 +97,7 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
     };
   }, [showExportMenu]);
 
-  // 加载图像列表
+  // Load image list
   const fetchImages = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/projects/${project.id}/images`);
@@ -106,7 +106,7 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
       setImages(prevImages => {
         const previousLength = prevImages.length;
         
-        // 如果有新图像添加，在控制台输出提示
+        // If new images are added, log to console
         if (data.length > previousLength) {
           console.log(`[Image List] New image added. Total: ${data.length} (was ${previousLength})`);
         }
@@ -114,16 +114,16 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
         return data;
       });
       
-      // 选择逻辑：
-      // 1) 初次加载或清空后，选中第一张
-      // 2) 如果当前索引超出新长度（新增/删除），钳制到最后一张
-      // 3) 如果是通过 WebSocket 通知新增的图像，保持当前选中（不自动切换）
+      // Selection logic:
+      // 1) On first load or after clearing, select first image
+      // 2) If current index exceeds new length (added/deleted), clamp to last image
+      // 3) If image added via WebSocket notification, keep current selection (don't auto-switch)
       setCurrentImageIndex(prevIndex => {
         if (data.length === 0) return -1;
         if (prevIndex === -1) return 0;
         if (prevIndex >= data.length) return data.length - 1;
-        // 如果有新图像添加（长度增加），但当前有选中图像，保持当前选中
-        // 这样用户不会因为收到新图像而被打断当前工作
+        // If new images are added (length increased) but current image is selected, keep current selection
+        // This prevents users from being interrupted by new images
         return prevIndex;
       });
     } catch (error) {
@@ -131,7 +131,7 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
     }
   }, [project.id]);
 
-  // 加载类别列表
+  // Load class list
   const fetchClasses = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/projects/${project.id}/classes`);
@@ -142,10 +142,10 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
     }
   }, [project.id]);
 
-  // 加载当前图像的标注
+  // Load annotations for current image
   const fetchAnnotations = useCallback(async () => {
     if (currentImageIndex < 0 || !images[currentImageIndex]) {
-      // 如果没有有效图像，清空标注
+      // If no valid image, clear annotations
       setAnnotations([]);
       setHistory([[]]);
       setHistoryIndex(0);
@@ -154,7 +154,7 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
 
     const imageId = images[currentImageIndex].id;
     
-    // 尝试使用缓存，提升切换速度
+    // Try to use cache to improve switching speed
     const cached = annotationCacheRef.current[imageId];
     if (cached) {
       setAnnotations(cached);
@@ -162,14 +162,14 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
       setHistoryIndex(0);
       setSelectedAnnotationId(null);
     } else {
-      // 无缓存时清空，避免显示上一个图像的标注
+      // Clear when no cache to avoid showing previous image's annotations
       setAnnotations([]);
       setHistory([[]]);
       setHistoryIndex(0);
       setSelectedAnnotationId(null);
     }
 
-    // 取消上一请求
+    // Cancel previous request
     if (annotationsAbortRef.current) {
       annotationsAbortRef.current.abort();
     }
@@ -185,20 +185,20 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
       }
       const data = await response.json();
 
-      // 统一标注字段，确保 classId 存在
+      // Normalize annotation fields, ensure classId exists
       const annotationsList = (data.annotations || []).map((ann: any) => ({
         ...ann,
         classId: ann.classId ?? ann.class_id ?? ann.classid ?? null
       }));
 
-      // 更新标注列表
+      // Update annotation list
       setAnnotations(annotationsList);
       annotationCacheRef.current[imageId] = annotationsList;
       
-      // 取消选中（因为切换了图像）
+      // Clear selection (because image was switched)
       setSelectedAnnotationId(null);
       
-      // 重置历史记录为新图像的标注历史
+      // Reset history to new image's annotation history
       setHistory([annotationsList]);
       setHistoryIndex(0);
     } catch (error: any) {
@@ -212,29 +212,29 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
     }
   }, [currentImageIndex, images, project.id]);
 
-  // WebSocket 连接
+  // WebSocket connection
   useWebSocket(project.id, useCallback((message: any) => {
     console.log('[WebSocket] Received message:', message);
     
     if (message.type === 'new_image') {
       console.log('[WebSocket] New image notification received:', message);
-      // 立即刷新图像列表
+      // Immediately refresh image list
       fetchImages().then(() => {
         console.log('[WebSocket] Image list refreshed after new image notification');
       }).catch(error => {
         console.error('[WebSocket] Failed to refresh image list:', error);
       });
     } else if (message.type === 'image_status_updated') {
-      // 图像状态更新（标注创建/删除导致状态变化）
+      // Image status updated (annotation create/delete causes status change)
       console.log('[WebSocket] Image status updated:', message);
-      // 刷新图像列表以更新状态显示
+      // Refresh image list to update status display
       fetchImages();
     } else if (message.type === 'annotation_deleted') {
-      // 标注被删除，刷新标注列表和图像列表
+      // Annotation deleted, refresh annotation list and image list
       const deletedImageId = message.image_id;
-      // 刷新图像列表（状态可能从 LABELED 变为 UNLABELED）
+      // Refresh image list (status may change from LABELED to UNLABELED)
       fetchImages();
-      // 如果删除的是当前图像的标注，刷新标注列表
+      // If deleted annotation belongs to current image, refresh annotation list
       setImages(currentImages => {
         const currentImageId = currentImages[currentImageIndex]?.id;
         if (deletedImageId === currentImageId) {
@@ -256,7 +256,7 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentImageIndex, images]);
 
-  // 同步缓存（用户在当前图像操作时，确保缓存也更新）
+  // Sync cache (when user operates on current image, ensure cache is also updated)
   useEffect(() => {
     const imageId = images[currentImageIndex]?.id;
     if (imageId) {
@@ -264,31 +264,31 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
     }
   }, [annotations, currentImageIndex, images]);
 
-  // 保存标注
+  // Save annotations
   const saveAnnotations = useCallback(async () => {
     if (currentImageIndex < 0 || !images[currentImageIndex]) return;
 
-    // 这里可以实现批量保存逻辑
-    // 目前由 Canvas 组件在创建/更新时直接保存
+    // Batch save logic can be implemented here
+    // Currently Canvas component saves directly on create/update
   }, [currentImageIndex, images]);
 
-  // 切换图像
+  // Switch image
   const handleImageChange = useCallback(async (delta: number) => {
     const newIndex = currentImageIndex + delta;
     if (newIndex >= 0 && newIndex < images.length) {
-      // 保存当前标注
+      // Save current annotations
       await saveAnnotations();
       
-      // 立即清空标注和选中状态，避免显示旧标注
+      // Immediately clear annotations and selection state to avoid showing old annotations
       setAnnotations([]);
       setSelectedAnnotationId(null);
       
-      // 切换图像索引，这会触发 useEffect 加载新标注
+      // Switch image index, this will trigger useEffect to load new annotations
       setCurrentImageIndex(newIndex);
     }
   }, [currentImageIndex, images.length, saveAnnotations]);
 
-  // 添加标注到历史
+  // Add annotations to history
   const addToHistory = useCallback((newAnnotations: Annotation[]) => {
     setHistory(prevHistory => {
       const newHistory = prevHistory.slice(0, historyIndex + 1);
@@ -298,7 +298,7 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
     });
   }, [historyIndex]);
 
-  // 撤销
+  // Undo
   const handleUndo = useCallback(() => {
     if (historyIndex > 0) {
       const newIndex = historyIndex - 1;
@@ -307,7 +307,7 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
     }
   }, [historyIndex, history]);
 
-  // 重做
+  // Redo
   const handleRedo = useCallback(() => {
     if (historyIndex < history.length - 1) {
       const newIndex = historyIndex + 1;
@@ -316,7 +316,7 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
     }
   }, [historyIndex, history]);
 
-  // 删除标注
+  // Delete annotation
   const handleDeleteAnnotation = useCallback(async (annotationId: number) => {
     if (!annotationId) {
       console.error('No annotation ID provided for deletion');
@@ -329,19 +329,19 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
       });
 
       if (response.ok) {
-        // 从本地状态中移除标注
+        // Remove annotation from local state
         setAnnotations(prevAnnotations => {
           const newAnnotations = prevAnnotations.filter(ann => ann.id !== annotationId);
           addToHistory(newAnnotations);
           return newAnnotations;
         });
         
-        // 如果删除的是当前选中的标注，取消选中
+        // If deleted annotation is currently selected, clear selection
         if (selectedAnnotationId === annotationId) {
           setSelectedAnnotationId(null);
         }
         
-        // 重新获取标注列表以确保同步（可选，但更安全）
+        // Re-fetch annotation list to ensure sync (optional, but safer)
         const imageId = images[currentImageIndex]?.id;
         if (imageId) {
           try {
@@ -355,33 +355,33 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
       } else {
         const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
         console.error('Failed to delete annotation:', errorData);
-        alert(`删除失败: ${errorData.detail || '未知错误'}`);
+        alert(`Delete failed: ${errorData.detail || 'Unknown error'}`);
       }
     } catch (error) {
       console.error('Failed to delete annotation:', error);
-      alert('删除标注时发生错误，请检查网络连接');
+      alert('Error occurred while deleting annotation, please check network connection');
     }
   }, [selectedAnnotationId, currentImageIndex, images, project.id, addToHistory]);
 
-  // 快捷键处理
+  // Keyboard shortcut handling
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
-      // 防止在输入框中触发
+      // Prevent triggering in input fields
       if ((e.target as HTMLElement).tagName === 'INPUT' || 
           (e.target as HTMLElement).tagName === 'TEXTAREA') {
         return;
       }
 
-      // 数字键切换类别（1-9）
+      // Number keys to switch classes (1-9)
       if (e.key >= '1' && e.key <= '9' && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
-        const keyIndex = parseInt(e.key) - 1; // 1-9 转换为 0-8
+        const keyIndex = parseInt(e.key) - 1; // Convert 1-9 to 0-8
         if (keyIndex < classes.length) {
           e.preventDefault();
           setSelectedClassId(classes[keyIndex].id);
         }
       }
 
-      // 工具切换
+      // Tool switching
       if (e.key === 'r' || e.key === 'R') {
         setCurrentTool('bbox');
       } else if (e.key === 'p' || e.key === 'P') {
@@ -390,7 +390,7 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
         setCurrentTool('select');
       }
 
-      // 导航
+      // Navigation
       if ((e.key === 'a' || e.key === 'ArrowLeft') && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         handleImageChange(-1);
@@ -399,18 +399,18 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
         handleImageChange(1);
       }
 
-      // 显示/隐藏标注
+      // Show/hide annotations
       if (e.key === 'h' || e.key === 'H') {
         setShowAnnotations(!showAnnotations);
       }
 
-      // 删除
+      // Delete
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedAnnotationId) {
         e.preventDefault();
         handleDeleteAnnotation(selectedAnnotationId);
       }
 
-      // 撤销/重做
+      // Undo/redo
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
         handleUndo();
@@ -419,7 +419,7 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
         handleRedo();
       }
 
-      // 保存
+      // Save
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
         saveAnnotations();
@@ -432,30 +432,30 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
 
   const currentImage = currentImageIndex >= 0 ? images[currentImageIndex] : null;
 
-  // 导出数据集
+  // Export dataset
   const handleExportDataset = async (exportType: 'yolo' | 'zip') => {
     setIsExporting(true);
     setShowExportMenu(false);
     
     try {
       if (exportType === 'yolo') {
-        // 先调用导出 API 生成 YOLO 数据集
+        // First call export API to generate YOLO dataset
         const exportResponse = await fetch(`${API_BASE_URL}/projects/${project.id}/export/yolo`, {
           method: 'POST',
         });
         
         if (!exportResponse.ok) {
-          const errorData = await exportResponse.json().catch(() => ({ detail: t('common.exportFailed', '导出失败') }));
-          throw new Error(errorData.detail || t('common.exportFailed', '导出失败'));
+          const errorData = await exportResponse.json().catch(() => ({ detail: t('common.exportFailed', 'Export failed') }));
+          throw new Error(errorData.detail || t('common.exportFailed', 'Export failed'));
         }
         
-        // 等待一下确保文件已生成
+        // Wait a bit to ensure file is generated
         await new Promise(resolve => setTimeout(resolve, 500));
         
-        // 下载 YOLO 数据集 zip
+        // Download YOLO dataset zip
         const downloadResponse = await fetch(`${API_BASE_URL}/projects/${project.id}/export/yolo/download`);
         if (!downloadResponse.ok) {
-          throw new Error('下载失败');
+          throw new Error('Download failed');
         }
         
         const blob = await downloadResponse.blob();
@@ -468,11 +468,11 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
       } else if (exportType === 'zip') {
-        // 导出数据集 zip 包
+        // Export dataset zip package
         const downloadResponse = await fetch(`${API_BASE_URL}/projects/${project.id}/export/zip`);
         if (!downloadResponse.ok) {
-          const errorData = await downloadResponse.json().catch(() => ({ detail: t('common.exportFailed', '导出失败') }));
-          throw new Error(errorData.detail || t('common.exportFailed', '导出失败'));
+          const errorData = await downloadResponse.json().catch(() => ({ detail: t('common.exportFailed', 'Export failed') }));
+          throw new Error(errorData.detail || t('common.exportFailed', 'Export failed'));
         }
         
         const blob = await downloadResponse.blob();
@@ -486,7 +486,7 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
         document.body.removeChild(a);
       }
     } catch (error: any) {
-      alert(`${t('common.exportFailed', '导出失败')}: ${error.message}`);
+      alert(`${t('common.exportFailed', 'Export failed')}: ${error.message}`);
     } finally {
       setIsExporting(false);
     }
@@ -621,12 +621,12 @@ export const AnnotationWorkbench: React.FC<AnnotationWorkbenchProps> = ({
           }}
           onAnnotationSelect={setSelectedAnnotationId}
           onAnnotationVisibilityChange={(id, visible) => {
-            // 可以在这里实现单个标注的显示/隐藏
+            // Can implement individual annotation show/hide here
           }}
           onAnnotationDelete={handleDeleteAnnotation}
           onClassSelect={(classId) => {
             setSelectedClassId(classId);
-            // 如果选中了标注，更新标注的类别
+            // If annotation is selected, update annotation's class
             if (selectedAnnotationId) {
               const updatedAnnotations = annotations.map(ann =>
                 ann.id === selectedAnnotationId ? { ...ann, classId } : ann

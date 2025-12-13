@@ -1,4 +1,4 @@
-"""内置 MQTT Broker 服务"""
+"""Built-in MQTT Broker service"""
 import asyncio
 import logging
 import threading
@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class BuiltinMQTTBroker:
-    """内置 MQTT Broker（使用 aMQTT）"""
+    """Built-in MQTT Broker (using aMQTT)"""
     
     def __init__(self):
         self.broker = None
@@ -19,33 +19,33 @@ class BuiltinMQTTBroker:
         self._thread: Optional[threading.Thread] = None
     
     def _run_broker(self):
-        """在独立线程中运行 Broker"""
+        """Run Broker in separate thread"""
         try:
             from amqtt.broker import Broker
             
-            # 创建新的事件循环
+            # Create new event loop
             self._loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self._loop)
             
             async def start_broker():
-                # 创建 Broker 配置（aMQTT 格式）
+                # Create Broker configuration (aMQTT format)
                 config = {
                     'listeners': {
                         'default': {
                             'type': 'tcp',
-                            'bind': '0.0.0.0',  # 绑定所有接口，允许容器内外连接
+                            'bind': '0.0.0.0',  # Bind all interfaces, allow connections from inside and outside container
                             'port': settings.MQTT_BUILTIN_PORT,
-                            'max-connections': 100,  # 增加最大连接数
+                            'max-connections': 100,  # Increase max connections
                         },
                     },
                     'sys_interval': 10,
                     'auth': {
-                        'allow-anonymous': True,  # 允许匿名连接
+                        'allow-anonymous': True,  # Allow anonymous connections
                     },
-                    'keepalive-timeout': 300,  # 增加keepalive超时时间（秒）
+                    'keepalive-timeout': 300,  # Increase keepalive timeout (seconds)
                 }
                 
-                # 创建并启动 Broker
+                # Create and start Broker
                 self.broker = Broker(config)
                 await self.broker.start()
                 self.is_running = True
@@ -54,7 +54,7 @@ class BuiltinMQTTBroker:
                 logger.info(f"[MQTT Broker] Built-in MQTT Broker started on port {settings.MQTT_BUILTIN_PORT}")
                 print(f"[MQTT Broker] Built-in MQTT Broker is ready at {local_ip}:{settings.MQTT_BUILTIN_PORT}")
                 
-                # 保持运行
+                # Keep running
                 try:
                     while self.is_running:
                         await asyncio.sleep(1)
@@ -67,7 +67,7 @@ class BuiltinMQTTBroker:
                         except:
                             pass
             
-            # 运行异步函数
+            # Run async function
             self._loop.run_until_complete(start_broker())
             
         except ImportError as e:
@@ -80,17 +80,17 @@ class BuiltinMQTTBroker:
             self.is_running = False
     
     def start(self):
-        """启动内置 MQTT Broker（同步方法）"""
+        """Start built-in MQTT Broker (synchronous method)"""
         if self.is_running:
             logger.warning("[MQTT Broker] Broker is already running")
             return
         
         try:
-            # 在独立线程中启动 Broker
+            # Start Broker in separate thread
             self._thread = threading.Thread(target=self._run_broker, daemon=True)
             self._thread.start()
             
-            # 等待一下确保 Broker 启动
+            # Wait a bit to ensure Broker starts
             import time
             time.sleep(0.5)
             
@@ -103,7 +103,7 @@ class BuiltinMQTTBroker:
             raise
     
     def stop(self):
-        """停止内置 MQTT Broker"""
+        """Stop built-in MQTT Broker"""
         if not self.is_running:
             return
         
@@ -111,7 +111,7 @@ class BuiltinMQTTBroker:
             self.is_running = False
             
             if self._loop and self._loop.is_running():
-                # 停止事件循环
+                # Stop event loop
                 self._loop.call_soon_threadsafe(self._loop.stop)
             
             if self._thread and self._thread.is_alive():
@@ -122,10 +122,10 @@ class BuiltinMQTTBroker:
             logger.error(f"[MQTT Broker] Error stopping broker: {e}")
     
     def get_broker_address(self) -> str:
-        """获取 Broker 地址"""
+        """Get Broker address"""
         local_ip = get_local_ip()
         return f"{local_ip}:{settings.MQTT_BUILTIN_PORT}"
 
 
-# 全局内置 Broker 实例
+# Global built-in Broker instance
 builtin_mqtt_broker = BuiltinMQTTBroker()

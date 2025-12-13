@@ -22,7 +22,7 @@ export const LanguageSwitcher: React.FC = () => {
     setIsOpen(false);
   };
 
-  // 点击外部关闭下拉框
+  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {

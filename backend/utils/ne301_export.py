@@ -1,6 +1,6 @@
 """
-NE301 模型导出工具
-用于生成 NE301 设备可用的模型包
+NE301 model export tool
+Used to generate model packages compatible with NE301 devices
 """
 import json
 import logging
@@ -24,9 +24,9 @@ logger = logging.getLogger(__name__)
 
 def _convert_to_json_serializable(obj):
     """
-    递归地将字典、列表中的 NumPy 类型转换为 Python 原生类型
-    确保对象可以被 JSON 序列化
-    兼容 NumPy 1.x 和 2.x
+    Recursively convert NumPy types in dictionaries and lists to Python native types
+    Ensure objects can be JSON serialized
+    Compatible with NumPy 1.x and 2.x
     """
     import numpy as np
     
@@ -37,8 +37,8 @@ def _convert_to_json_serializable(obj):
     elif isinstance(obj, np.ndarray):
         return obj.tolist()
     
-    # 使用更安全的方式检查 NumPy 类型（兼容 NumPy 1.x 和 2.x）
-    # 首先检查是否是 NumPy 基础类型（不访问可能不存在的属性）
+    # Use safer way to check NumPy types (compatible with NumPy 1.x and 2.x)
+    # First check if it's a NumPy base type (without accessing potentially non-existent attributes)
     if isinstance(obj, np.integer):
         try:
             return int(obj.item())
@@ -52,7 +52,7 @@ def _convert_to_json_serializable(obj):
     elif isinstance(obj, np.bool_):
         return bool(obj)
     
-    # 如果 isinstance 检查失败，尝试通过类型名称判断
+    # If isinstance check fails, try to determine by type name
     obj_type_name = type(obj).__name__
     if 'int' in obj_type_name.lower() and hasattr(obj, 'item'):
         try:
@@ -78,45 +78,45 @@ def _convert_to_json_serializable(obj):
 
 def extract_tflite_quantization_params(tflite_path: Path) -> Tuple[Optional[float], Optional[int], Optional[Tuple[int, int, int]]]:
     """
-    从 TFLite 模型中提取量化参数和输出尺寸
+    Extract quantization parameters and output dimensions from TFLite model
     
     Returns:
-        (output_scale, output_zero_point, output_shape) 元组
-        如果无法提取，返回 (None, None, None)
-        所有返回值都转换为 Python 原生类型（可 JSON 序列化）
+        Tuple of (output_scale, output_zero_point, output_shape)
+        Returns (None, None, None) if extraction fails
+        All return values are converted to Python native types (JSON serializable)
     """
     if not TENSORFLOW_AVAILABLE:
         logger.warning("TensorFlow not available, cannot extract quantization parameters from TFLite model")
         return None, None, None
     
     try:
-        # 加载 TFLite 模型
+        # Load TFLite model
         interpreter = tf.lite.Interpreter(model_path=str(tflite_path))
         interpreter.allocate_tensors()
         
-        # 获取输出张量详情
-        output_details = interpreter.get_output_details()[0]  # 假设只有一个输出
-        output_shape = output_details['shape']  # 例如 [1, 84, 1344]
+        # Get output tensor details
+        output_details = interpreter.get_output_details()[0]  # Assume only one output
+        output_shape = output_details['shape']  # e.g., [1, 84, 1344]
         
-        # 转换 output_shape 为 Python 原生类型（处理 NumPy int64/int32）
+        # Convert output_shape to Python native types (handle NumPy int64/int32)
         if output_shape is not None:
             output_shape = tuple(int(x) for x in output_shape)
         
-        # 提取量化参数
+        # Extract quantization parameters
         if 'quantization_parameters' in output_details:
             quant_params = output_details['quantization_parameters']
             
-            # 提取 scale 和 zero_point，并转换为 Python 原生类型
+            # Extract scale and zero_point, and convert to Python native types
             if quant_params.get('scales') and len(quant_params['scales']) > 0:
                 scale_val = quant_params['scales'][0]
-                # 转换 NumPy float 类型为 Python float
+                # Convert NumPy float type to Python float
                 output_scale = float(scale_val) if scale_val is not None else None
             else:
                 output_scale = None
             
             if quant_params.get('zero_points') and len(quant_params['zero_points']) > 0:
                 zp_val = quant_params['zero_points'][0]
-                # 转换 NumPy int 类型为 Python int
+                # Convert NumPy int type to Python int
                 output_zero_point = int(zp_val) if zp_val is not None else None
             else:
                 output_zero_point = None
@@ -146,26 +146,26 @@ def generate_ne301_json_config(
     output_shape: Optional[Tuple[int, int, int]] = None,
 ) -> Dict:
     """
-    生成 NE301 JSON 配置文件
+    Generate NE301 JSON configuration file
     
     Args:
-        tflite_path: TFLite 模型文件路径
-        model_name: 模型名称（不含扩展名）
-        input_size: 模型输入尺寸（如 256）
-        num_classes: 类别数量
-        class_names: 类别名称列表
-        output_scale: 输出量化 scale（如果为 None，会尝试从 TFLite 模型提取）
-        output_zero_point: 输出量化 zero_point（如果为 None，会尝试从 TFLite 模型提取）
-        confidence_threshold: 置信度阈值
-        iou_threshold: IoU 阈值
-        max_detections: 最大检测数量
-        total_boxes: 总框数（如果为 None，会从 output_shape 或根据 input_size 估算）
-        output_shape: 模型输出形状 (batch, height, width)，如果为 None 会尝试从 TFLite 模型提取
+        tflite_path: TFLite model file path
+        model_name: Model name (without extension)
+        input_size: Model input size (e.g., 256)
+        num_classes: Number of classes
+        class_names: List of class names
+        output_scale: Output quantization scale (if None, will try to extract from TFLite model)
+        output_zero_point: Output quantization zero_point (if None, will try to extract from TFLite model)
+        confidence_threshold: Confidence threshold
+        iou_threshold: IoU threshold
+        max_detections: Maximum number of detections
+        total_boxes: Total number of boxes (if None, will estimate from output_shape or based on input_size)
+        output_shape: Model output shape (batch, height, width), if None will try to extract from TFLite model
     
     Returns:
-        JSON 配置字典
+        JSON configuration dictionary
     """
-    # 尝试从 TFLite 模型提取量化参数和输出尺寸
+    # Try to extract quantization parameters and output dimensions from TFLite model
     if output_scale is None or output_zero_point is None or output_shape is None:
         extracted_scale, extracted_zero_point, extracted_shape = extract_tflite_quantization_params(tflite_path)
         if extracted_scale is not None:
@@ -175,29 +175,29 @@ def generate_ne301_json_config(
         if extracted_shape is not None:
             output_shape = extracted_shape
     
-    # 使用默认值（如果无法提取）
+    # Use default values (if extraction fails)
     if output_scale is None:
-        output_scale = 0.003921568859368563  # 默认 uint8->int8 scale (1/255)
+        output_scale = 0.003921568859368563  # Default uint8->int8 scale (1/255)
     if output_zero_point is None:
-        output_zero_point = -128  # 默认 int8 zero_point
+        output_zero_point = -128  # Default int8 zero_point
     
-    # 从 output_shape 提取输出高度和宽度
+    # Extract output height and width from output_shape
     if output_shape is not None:
-        # output_shape 格式: (batch, height, width) 例如 (1, 84, 1344)
+        # output_shape format: (batch, height, width) e.g., (1, 84, 1344)
         output_height = output_shape[1] if len(output_shape) > 1 else (4 + num_classes)
         output_width = output_shape[2] if len(output_shape) > 2 else None
         if output_width is not None and total_boxes is None:
             total_boxes = output_width
     else:
-        output_height = 4 + num_classes  # 默认值：4 (bbox) + num_classes
+        output_height = 4 + num_classes  # Default: 4 (bbox) + num_classes
     
-    # 计算 YOLOv8 输出尺寸
-    # YOLOv8 256x256: 输出为 (1, 84, 1344) 或类似
+    # Calculate YOLOv8 output dimensions
+    # YOLOv8 256x256: output is (1, 84, 1344) or similar
     # 84 = 4 (bbox) + 80 (classes)
     # 1344 = 3 scales * (32*32 + 16*16 + 8*8) = 3 * 448 = 1344
     if total_boxes is None:
-        # 根据 input_size 估算
-        # YOLOv8 在不同输入尺寸下的网格数不同
+        # Estimate based on input_size
+        # YOLOv8 has different grid counts at different input sizes
         if input_size == 256:
             total_boxes = 1344  # 3 * (32*32 + 16*16 + 8*8) = 3 * 448
         elif input_size == 320:
@@ -207,12 +207,12 @@ def generate_ne301_json_config(
         elif input_size == 640:
             total_boxes = 8400  # 3 * (80*80 + 40*40 + 20*20) = 3 * 2800
         else:
-            # 默认估算
+            # Default estimation
             scale = input_size // 8
             total_boxes = 3 * (scale * scale + (scale // 2) ** 2 + (scale // 4) ** 2)
     
-    # 如果从模型提取的输出高度与计算的不同，使用提取的值
-    # 但确保至少是 4 + num_classes（bbox + classes）
+    # If extracted output height differs from calculated, use extracted value
+    # But ensure it's at least 4 + num_classes (bbox + classes)
     if output_height < 4 + num_classes:
         output_height = 4 + num_classes
         logger.warning(f"Output height {output_height} is less than expected (4 + {num_classes}), using calculated value")
@@ -261,7 +261,7 @@ def generate_ne301_json_config(
             "ext_memory_size": 301056,
             "alignment_requirement": 32
         },
-        "postprocess_type": "pp_od_yolo_v8_ui",  # uint8 input, int8 output (推荐)
+        "postprocess_type": "pp_od_yolo_v8_ui",  # uint8 input, int8 output (recommended)
         "postprocess_params": {
             "num_classes": num_classes,
             "class_names": class_names,
@@ -291,7 +291,7 @@ def generate_ne301_json_config(
         }
     }
     
-    # 确保所有值都是 JSON 可序列化的（转换 NumPy 类型）
+    # Ensure all values are JSON serializable (convert NumPy types)
     config = _convert_to_json_serializable(config)
     
     return config
@@ -304,29 +304,29 @@ def copy_model_to_ne301_project(
     model_name: str
 ) -> Tuple[Path, Path]:
     """
-    将模型文件和 JSON 配置复制到 NE301 项目目录
+    Copy model files and JSON config to NE301 project directory
     
     Args:
-        tflite_path: TFLite 模型文件路径
-        json_config: JSON 配置字典
-        ne301_project_path: NE301 项目根目录
-        model_name: 模型名称（不含扩展名）
+        tflite_path: TFLite model file path
+        json_config: JSON configuration dictionary
+        ne301_project_path: NE301 project root directory
+        model_name: Model name (without extension)
     
     Returns:
-        (tflite_dest_path, json_dest_path) 元组
+        Tuple of (tflite_dest_path, json_dest_path)
     """
-    # 确保 Model/weights 目录存在
+    # Ensure Model/weights directory exists
     weights_dir = ne301_project_path / "Model" / "weights"
     weights_dir.mkdir(parents=True, exist_ok=True)
     
-    # 复制 TFLite 文件
+    # Copy TFLite file
     tflite_dest = weights_dir / f"{model_name}.tflite"
     shutil.copy2(tflite_path, tflite_dest)
     logger.info(f"Copied TFLite model to {tflite_dest}")
     
-    # 保存 JSON 配置（确保所有值都是可序列化的）
+    # Save JSON config (ensure all values are serializable)
     json_dest = weights_dir / f"{model_name}.json"
-    # 再次确保配置是可序列化的（双重保险）
+    # Ensure config is serializable again (double check)
     json_config_clean = _convert_to_json_serializable(json_config)
     with open(json_dest, "w", encoding="utf-8") as f:
         json.dump(json_config_clean, f, indent=2, ensure_ascii=False)
@@ -342,27 +342,27 @@ def build_ne301_model(
     use_docker: bool = True
 ) -> Optional[Path]:
     """
-    使用 NE301 开发环境编译模型
+    Compile model using NE301 development environment
     
     Args:
-        ne301_project_path: NE301 项目根目录
-        model_name: 模型名称（用于更新 Model/Makefile 中的 MODEL_NAME）
-        docker_image: Docker 镜像名称
-        use_docker: 是否使用 Docker（否则需要本地有 NE301 开发环境）
+        ne301_project_path: NE301 project root directory
+        model_name: Model name (for updating MODEL_NAME in Model/Makefile)
+        docker_image: Docker image name
+        use_docker: Whether to use Docker (otherwise requires local NE301 development environment)
     
     Returns:
-        编译并打包生成的设备可更新包路径 (build/ne301_Model_v*_pkg.bin)，如果打包失败则返回原始 .bin 文件路径，失败返回 None
+        Path to compiled and packaged device update package (build/ne301_Model_v*_pkg.bin), returns original .bin file path if packaging fails, returns None on failure
     """
     ne301_project_path = Path(ne301_project_path).resolve()
     
-    # 检查 NE301 项目目录
+    # Check NE301 project directory
     if not (ne301_project_path / "Model").exists():
         raise FileNotFoundError(f"NE301 project directory does not exist or Model directory is missing: {ne301_project_path}")
     
     if not (ne301_project_path / "Makefile").exists():
         raise FileNotFoundError(f"NE301 project root directory missing Makefile: {ne301_project_path}")
     
-    # 验证模型文件是否存在（在更新 Makefile 之前）
+    # Verify model files exist (before updating Makefile)
     weights_dir = ne301_project_path / "Model" / "weights"
     expected_tflite = weights_dir / f"{model_name}.tflite"
     expected_json = weights_dir / f"{model_name}.json"
@@ -379,18 +379,18 @@ def build_ne301_model(
         )
     logger.info(f"Verifying model files exist: {expected_tflite}, {expected_json}")
     
-    # 更新 Model/Makefile 中的 MODEL_NAME
+    # Update MODEL_NAME in Model/Makefile
     model_makefile = ne301_project_path / "Model" / "Makefile"
     if model_makefile.exists():
         try:
             content = model_makefile.read_text(encoding="utf-8")
-            # 更新 MODEL_NAME
+            # Update MODEL_NAME
             lines = content.split("\n")
             updated = False
             for i, line in enumerate(lines):
-                # 匹配 MODEL_NAME = ... 或 MODEL_NAME=...（允许空格）
+                # Match MODEL_NAME = ... or MODEL_NAME=... (allow spaces)
                 if line.strip().startswith("MODEL_NAME") and "=" in line:
-                    # 提取注释（如果有）
+                    # Extract comment (if any)
                     comment = ""
                     if "#" in line:
                         comment_part = line.split("#", 1)[1]
@@ -401,12 +401,12 @@ def build_ne301_model(
                     break
             
             if not updated:
-                # 如果没有找到，在 Model files 部分后面添加
-                # 查找 "Model files" 注释行之后的位置
+                # If not found, add after Model files section
+                # Find position after "Model files" comment line
                 insert_pos = 0
                 for i, line in enumerate(lines):
                     if "Model files" in line or "# Model files" in line.lower():
-                        # 找到下一个空行或相关行之后插入
+                        # Find next empty line or related line and insert after
                         for j in range(i+1, len(lines)):
                             if lines[j].strip().startswith("MODEL_NAME"):
                                 insert_pos = j
@@ -418,23 +418,23 @@ def build_ne301_model(
                 if insert_pos > 0:
                     lines.insert(insert_pos, f"MODEL_NAME = {model_name}")
                 else:
-                    # 如果找不到合适位置，在文件开头添加
+                    # If no suitable position found, add at file beginning
                     lines.insert(0, f"MODEL_NAME = {model_name}")
                 logger.info(f"Added MODEL_NAME at line {insert_pos+1}")
             
-            # 写入文件
+            # Write file
             updated_content = "\n".join(lines)
             model_makefile.write_text(updated_content, encoding="utf-8")
             
-            # 验证更新是否成功
+            # Verify update succeeded
             verify_content = model_makefile.read_text(encoding="utf-8")
             if f"MODEL_NAME = {model_name}" in verify_content or f"MODEL_NAME={model_name}" in verify_content:
                 logger.info(f"Successfully updated MODEL_NAME to '{model_name}' in {model_makefile}")
             else:
                 logger.warning(f"Updated Makefile but verification failed. Please check {model_makefile}")
-                # 再次尝试读取，显示实际内容以便调试
+                # Try reading again, show actual content for debugging
                 actual_lines = verify_content.split('\n')
-                for i, line in enumerate(actual_lines[:30], 1):  # 只显示前30行
+                for i, line in enumerate(actual_lines[:30], 1):  # Only show first 30 lines
                     if 'MODEL_NAME' in line:
                         logger.warning(f"  Line {i}: {line}")
                 
@@ -446,10 +446,10 @@ def build_ne301_model(
         raise FileNotFoundError(f"Model/Makefile does not exist: {model_makefile}")
     
     if use_docker:
-        # 使用 Docker 编译
+        # Use Docker to compile
         return _build_with_docker(ne301_project_path, docker_image, model_name)
     else:
-        # 本地编译（需要安装 NE301 开发环境）
+        # Local compilation (requires NE301 development environment installed)
         return _build_local(ne301_project_path)
 
 
@@ -458,10 +458,10 @@ def _build_with_docker(
     docker_image: str = "camthink/ne301-dev:latest",
     model_name: Optional[str] = None
 ) -> Optional[Path]:
-    """使用 Docker 容器编译模型"""
+    """Compile model using Docker container"""
     ne301_project_path = Path(ne301_project_path).resolve()
     
-    # 如果 model_name 未提供，尝试从 Makefile 读取
+    # If model_name not provided, try to read from Makefile
     if model_name is None:
         model_makefile = ne301_project_path / "Model" / "Makefile"
         if model_makefile.exists():
@@ -469,95 +469,95 @@ def _build_with_docker(
                 content = model_makefile.read_text(encoding="utf-8")
                 for line in content.split("\n"):
                     if line.strip().startswith("MODEL_NAME") and "=" in line:
-                        # 提取 MODEL_NAME 的值
+                        # Extract MODEL_NAME value
                         parts = line.split("=", 1)
                         if len(parts) == 2:
-                            model_name = parts[1].strip().split("#")[0].strip()  # 移除注释
+                            model_name = parts[1].strip().split("#")[0].strip()  # Remove comment
                             logger.info(f"Read MODEL_NAME from Makefile: {model_name}")
                             break
             except Exception as e:
                 logger.warning(f"Failed to read MODEL_NAME from Makefile: {e}")
     
-    # 如果仍然没有 model_name，使用通配符
+    # If still no model_name, use wildcard
     model_name_pattern = model_name if model_name else "*"
     
-    # 检测系统架构
+    # Detect system architecture
     import platform
     machine = platform.machine().lower()
     is_arm64 = machine in ('arm64', 'aarch64')
     
-    # 检查 Docker 镜像是否存在
+    # Check if Docker image exists
     check_cmd = ["docker", "images", "-q", docker_image]
     result = subprocess.run(check_cmd, capture_output=True, text=True)
     if not result.stdout.strip():
         logger.warning(f"Docker image {docker_image} does not exist, attempting to pull...")
         pull_cmd = ["docker", "pull"]
         if is_arm64:
-            # ARM64 架构需要拉取 AMD64 镜像（使用 --platform）
+            # ARM64 architecture needs to pull AMD64 image (using --platform)
             pull_cmd.extend(["--platform", "linux/amd64"])
         pull_cmd.append(docker_image)
         pull_result = subprocess.run(pull_cmd, capture_output=True, text=True)
         if pull_result.returncode != 0:
             raise RuntimeError(f"Failed to pull Docker image {docker_image}: {pull_result.stderr}")
     
-    # 构建 Docker 命令
-    # 问题：在 Docker-in-Docker 场景中，容器内的路径无法直接挂载到另一个容器
-    # 解决方案：使用 Docker volume 或者检查是否有主机路径映射
+    # Build Docker command
+    # Problem: In Docker-in-Docker scenario, paths inside container cannot be directly mounted to another container
+    # Solution: Use Docker volume or check if there's host path mapping
     docker_cmd = [
         "docker", "run", "--rm",
     ]
     
-    # 如果是 ARM64 架构，添加平台参数
+    # If ARM64 architecture, add platform parameter
     if is_arm64:
         docker_cmd.extend(["--platform", "linux/amd64"])
     
-    # 检查是否在容器内运行
+    # Check if running inside container
     is_in_container = Path("/.dockerenv").exists() or os.environ.get("container") == "docker"
     
     if is_in_container:
-        # 在容器内运行 Docker-in-Docker
-        # Docker Desktop 的限制：容器内路径无法直接挂载到另一个容器
-        # 解决方案：获取对应的主机路径
+        # Running Docker-in-Docker inside container
+        # Docker Desktop limitation: paths inside container cannot be directly mounted to another container
+        # Solution: Get corresponding host path
         
         logger.info(f"[NE301] Detected running inside container, starting automatic host path detection...")
         
-        # 检查是否有工作空间挂载（/workspace/ne301）
+        # Check if workspace mount exists (/workspace/ne301)
         workspace_path = Path("/workspace/ne301")
         mount_path = None
         
         logger.info(f"[NE301] Checking container path: {workspace_path} (exists: {workspace_path.exists()}, is_dir: {workspace_path.is_dir() if workspace_path.exists() else 'N/A'})")
         
         def validate_mount_path(path, strict=True):
-            """验证挂载路径是否有效
+            """Validate if mount path is valid
             Args:
-                path: 要验证的路径
-                strict: 如果为 True，检查路径是否存在；如果为 False，只检查格式
+                path: Path to validate
+                strict: If True, check if path exists; if False, only check format
             """
             if not path:
                 return False
             try:
                 p = Path(path)
                 if strict:
-                    # 严格模式：检查路径是否存在，且包含 Model 目录（NE301 项目的特征）
+                    # Strict mode: check if path exists and contains Model directory (NE301 project feature)
                     return p.exists() and (p / "Model").exists()
                 else:
-                    # 宽松模式：只检查路径格式（主机路径在容器内无法验证）
+                    # Lenient mode: only check path format (host path cannot be verified inside container)
                     return len(str(path)) > 0 and "/" in str(path)
             except Exception:
                 return False
         
         if workspace_path.exists() and workspace_path.is_dir():
-            # 优先通过 Docker inspect 获取主机路径（最可靠）
+            # Prefer getting host path via Docker inspect (most reliable)
             all_mounts = None
             try:
-                # 通过环境变量获取容器名，或使用默认名
-                # 优先使用 CONTAINER_NAME，然后是 HOSTNAME，最后是默认值
+                # Get container name from environment variable, or use default name
+                # Prefer CONTAINER_NAME, then HOSTNAME, finally default value
                 container_names = [
                     os.environ.get("CONTAINER_NAME"),
                     os.environ.get("HOSTNAME"),
-                    "neoeyestool"
+                    "aitoolstack"
                 ]
-                # 过滤掉 None 值
+                # Filter out None values
                 container_names = [name for name in container_names if name]
                 
                 logger.info(f"[NE301] Attempting to get host path via Docker inspect, container name candidates: {container_names}")
@@ -574,12 +574,12 @@ def _build_with_docker(
                             all_mounts = json.loads(result.stdout)
                             logger.info(f"[NE301] Found {len(all_mounts)} mount points")
                             
-                            # 输出所有挂载点信息（用于调试）
+                            # Output all mount point information (for debugging)
                             logger.info(f"[NE301] All mount point information:")
                             for i, mount in enumerate(all_mounts):
                                 logger.info(f"[NE301]   #{i+1}: {mount.get('Source')} -> {mount.get('Destination')}")
                             
-                            # 首先查找 /workspace/ne301 挂载点
+                            # First search for /workspace/ne301 mount point
                             for mount in all_mounts:
                                 dest = mount.get("Destination")
                                 src = mount.get("Source")
@@ -587,7 +587,7 @@ def _build_with_docker(
                                 if dest == "/workspace/ne301":
                                     candidate_path = src
                                     logger.info(f"[NE301] Found matching mount point: {candidate_path} -> /workspace/ne301")
-                                    # 在容器内验证主机路径时，使用宽松模式（只检查格式，不检查存在性）
+                                    # When validating host path inside container, use lenient mode (only check format, not existence)
                                     if validate_mount_path(candidate_path, strict=False):
                                         mount_path = candidate_path
                                         logger.info(f"[NE301] ✓ Found valid host path from Docker inspect: {mount_path}")
@@ -606,14 +606,14 @@ def _build_with_docker(
             except Exception as e:
                 logger.warning(f"[NE301] Docker inspect process exception: {type(e).__name__}: {e}")
             
-            # 如果未找到 ne301 挂载点，尝试通过其他挂载点推断项目根目录
+            # If ne301 mount point not found, try to infer project root directory from other mount points
             if not mount_path:
                 if all_mounts:
                     logger.info(f"[NE301] Direct /workspace/ne301 mount point not found, attempting to infer from other mount points...")
                     try:
-                        # 尝试通过 datasets 挂载点推断项目根目录（最可靠的方法）
-                        # docker-compose.yml 中: ./datasets:/app/datasets 和 ./ne301:/workspace/ne301
-                        # 如果找到 ./datasets 的主机路径，可以推断出 ./ne301 的路径
+                        # Try to infer project root directory from datasets mount point (most reliable method)
+                        # In docker-compose.yml: ./datasets:/app/datasets and ./ne301:/workspace/ne301
+                        # If ./datasets host path is found, can infer ./ne301 path
                         datasets_host_path = None
                         for mount in all_mounts:
                             if mount.get("Destination") == "/app/datasets":
@@ -622,16 +622,16 @@ def _build_with_docker(
                                 break
                         
                         if datasets_host_path:
-                            # datasets 路径是项目根目录下的 datasets 目录
-                            # 如果 datasets_host_path = /path/to/project/datasets
-                            # 那么 ne301_host_path 应该是 /path/to/project/ne301
+                            # datasets path is the datasets directory under project root directory
+                            # If datasets_host_path = /path/to/project/datasets
+                            # Then ne301_host_path should be /path/to/project/ne301
                             try:
                                 datasets_path = Path(datasets_host_path)
-                                # 验证 datasets 路径格式是否正确（目录名应该是 datasets）
-                                # 注意：在容器内无法验证主机路径是否存在，所以只检查格式
+                                # Verify datasets path format is correct (directory name should be datasets)
+                                # Note: Cannot verify host path existence inside container, so only check format
                                 if datasets_path.name == "datasets":
                                     inferred_ne301_path = datasets_path.parent / "ne301"
-                                    # 在容器内验证推断的主机路径时，使用宽松模式（只检查格式）
+                                    # When validating inferred host path inside container, use lenient mode (only check format)
                                     if validate_mount_path(str(inferred_ne301_path), strict=False):
                                         mount_path = str(inferred_ne301_path)
                                         logger.info(f"[NE301] ✓ Inferred host path from datasets mount point: {mount_path}")
@@ -653,21 +653,21 @@ def _build_with_docker(
                 else:
                     logger.warning(f"[NE301] Docker inspect failed to get mount point information (all_mounts is None), cannot infer path")
             
-            # 如果 Docker inspect 失败，尝试从 /proc/mounts 获取（但需要验证）
+            # If Docker inspect fails, try to get from /proc/mounts (but needs verification)
             if not mount_path:
                 try:
                     with open("/proc/mounts", "r") as f:
                         for line in f:
                             parts = line.split()
                             if len(parts) >= 2:
-                                host_path = parts[0]  # 主机路径
-                                container_path = parts[1]  # 容器路径
+                                host_path = parts[0]  # Host path
+                                container_path = parts[1]  # Container path
                                 if container_path == "/workspace/ne301" or container_path == str(workspace_path):
-                                    # 跳过明显错误的路径（Docker Desktop 的虚拟路径）
+                                    # Skip obviously wrong paths (Docker Desktop virtual paths)
                                     if "/run/host" in host_path or "/tmp" in host_path or not host_path.startswith("/"):
                                         logger.debug(f"[NE301] Skipping suspicious path: {host_path}")
                                         continue
-                                    # 验证路径格式（使用宽松模式，因为主机路径在容器内无法验证存在性）
+                                    # Verify path format (use lenient mode, because host path cannot be verified inside container)
                                     if validate_mount_path(host_path, strict=False):
                                         mount_path = host_path
                                         logger.info(f"[NE301] Found valid host path from /proc/mounts: {mount_path}")
@@ -676,14 +676,14 @@ def _build_with_docker(
                 except Exception as e:
                     logger.warning(f"[NE301] Failed to read /proc/mounts: {e}")
         
-        # 如果仍然无法获取主机路径，尝试最后的备选方案
+        # If still cannot get host path, try final fallback
         if not mount_path:
-            # 最后的备选方案：检查环境变量（仅作为兜底方案，不推荐手动设置）
+            # Final fallback: check environment variable (only as last resort, not recommended to set manually)
             env_path = os.environ.get("NE301_HOST_PATH")
             if env_path:
                 env_path = env_path.strip()
                 if env_path:
-                    # 验证环境变量路径格式（宽松模式）
+                    # Verify environment variable path format (lenient mode)
                     if validate_mount_path(env_path, strict=False):
                         mount_path = env_path
                         logger.warning(f"[NE301] ⚠️ Using environment variable NE301_HOST_PATH as fallback: {mount_path}")
@@ -692,7 +692,7 @@ def _build_with_docker(
                         logger.error(f"[NE301] Environment variable NE301_HOST_PATH format invalid: {env_path}")
             
             if not mount_path:
-                # 最终回退：使用容器路径（会失败，但错误信息会提示用户）
+                # Final fallback: use container path (will fail, but error message will guide user)
                 mount_path = str(workspace_path.resolve()) if workspace_path.exists() else str(ne301_project_path.resolve())
                 logger.error(f"[NE301] ✗ Failed to automatically get host path!")
                 logger.error(f"[NE301] Attempted methods:")
@@ -714,7 +714,7 @@ def _build_with_docker(
                 logger.error(f"[NE301]   3. Is Docker socket permission normal (/var/run/docker.sock)")
                 logger.error(f"[NE301]   4. Is CONTAINER_NAME environment variable correct (current: {os.environ.get('CONTAINER_NAME', 'not set')})")
         
-        # 挂载主机路径到容器的 /workspace/ne301
+        # Mount host path to container's /workspace/ne301
         if mount_path:
             logger.info(f"[NE301] ✓ Final mount path to use: {mount_path}")
             logger.info(f"[NE301] Will mount this path to ne301-dev container: -v {mount_path}:/workspace/ne301")
@@ -723,12 +723,12 @@ def _build_with_docker(
             logger.warning(f"[NE301] ⚠️ No valid host path found, will use container path (may cause Docker-in-Docker mount to fail)")
         docker_cmd.extend([
             "-v", f"{mount_path}:/workspace/ne301",
-            "-w", "/workspace/ne301",  # 工作目录设为项目根目录
+            "-w", "/workspace/ne301",  # Set working directory to project root
         ])
         
-        # 在执行 Docker 命令前，验证文件是否存在于容器内（因为文件刚被复制到容器内的挂载点）
-        # 文件复制到容器内的 /workspace/ne301，应该会立即同步到主机的挂载点
-        # 但如果挂载的主机路径不同，可能需要等待同步或使用不同的策略
+        # Before executing Docker command, verify files exist in container (because files were just copied to container mount point)
+        # Files copied to container's /workspace/ne301 should immediately sync to host mount point
+        # But if mounted host path is different, may need to wait for sync or use different strategy
         if model_name:
             container_tflite = ne301_project_path / "Model" / "weights" / f"{model_name}.tflite"
             container_json = ne301_project_path / "Model" / "weights" / f"{model_name}.json"
@@ -742,28 +742,28 @@ def _build_with_docker(
                 )
             logger.info(f"[NE301] Validation passed: Files exist in container path")
             
-            # 如果找到了主机路径，尝试检查主机路径的文件是否存在
-            # 由于 bind mount，容器内路径和主机路径应该指向同一位置
-            # 但如果文件不在主机路径，可能是文件系统同步延迟或路径不匹配
-            # 注意：主机路径在容器内可能无法直接访问，所以这里只做尝试性验证
+            # If host path found, try to check if files exist at host path
+            # Due to bind mount, container path and host path should point to same location
+            # But if files not at host path, may be filesystem sync delay or path mismatch
+            # Note: Host path may not be directly accessible inside container, so only do tentative verification
             if mount_path:
-                # 验证路径格式（宽松模式，因为主机路径在容器内无法验证存在性）
+                # Verify path format (lenient mode, because host path cannot be verified inside container)
                 if not validate_mount_path(mount_path, strict=False):
                     logger.warning(f"[NE301] Warning: Parsed host path format invalid: {mount_path}")
                     logger.warning(f"[NE301] Will continue to try using this path for Docker mount")
                 else:
                     logger.info(f"[NE301] Host path format validation passed: {mount_path}")
                 
-                # 尝试访问主机路径（可能失败，但不影响 Docker 挂载）
+                # Try to access host path (may fail, but doesn't affect Docker mount)
                 host_tflite = Path(mount_path) / "Model" / "weights" / f"{model_name}.tflite"
                 host_json = Path(mount_path) / "Model" / "weights" / f"{model_name}.json"
                 
-                # 尝试确保主机路径目录存在（可能在容器内无法访问，但不影响 Docker 挂载）
+                # Try to ensure host path directory exists (may not be accessible in container, but doesn't affect Docker mount)
                 host_weights_dir = Path(mount_path) / "Model" / "weights"
                 try:
                     if not host_weights_dir.exists():
                         logger.debug(f"[NE301] Host path directory not visible in container: {host_weights_dir} (this is normal)")
-                        # 尝试创建（可能失败，但不影响 Docker 挂载，因为文件已在容器内存在）
+                        # Try to create (may fail, but doesn't affect Docker mount, because files already exist in container)
                         try:
                             host_weights_dir.mkdir(parents=True, exist_ok=True)
                             logger.debug(f"[NE301] Created host path directory (if accessible)")
@@ -774,9 +774,9 @@ def _build_with_docker(
                 except Exception as e:
                     logger.debug(f"[NE301] Cannot access host path directory (this is normal, container may not directly access host path): {e}")
                 
-                # 尝试检查主机路径的文件是否存在（可能在容器内无法访问，这是正常的）
-                # 由于 bind mount，容器内路径和主机路径应该指向同一位置
-                # 如果文件不在主机路径可见，可能是 Docker Desktop 的文件系统隔离导致的
+                # Try to check if files exist at host path (may not be accessible in container, this is normal)
+                # Due to bind mount, container path and host path should point to same location
+                # If files not visible at host path, may be due to Docker Desktop filesystem isolation
                 try:
                     host_files_exist = host_tflite.exists() and host_json.exists()
                     logger.debug(f"[NE301] Host path file check: TFLite={host_tflite.exists()}, JSON={host_json.exists()}")
@@ -795,20 +795,20 @@ def _build_with_docker(
                     logger.info(f"[NE301]   - {host_tflite}")
                     logger.info(f"[NE301]   - {host_json}")
             elif mount_path:
-                # 路径已解析，但可能格式验证失败（不应该发生，因为已使用宽松模式）
+                # Path parsed, but format validation may have failed (shouldn't happen, because lenient mode used)
                 logger.warning(f"[NE301] Warning: Path format validation failed: {mount_path}")
                 logger.warning(f"[NE301] Will continue to try using this path for Docker mount")
             else:
-                # 路径解析失败
+                # Path parsing failed
                 logger.warning(f"[NE301] Warning: Failed to parse host path, will use container path (may fail)")
     else:
-        # 不在容器内：直接使用本地路径
+        # Not in container: use local path directly
         docker_cmd.extend([
             "-v", f"{ne301_project_path}:/workspace/ne301",
-            "-w", "/workspace/ne301",  # 工作目录设为项目根目录
+            "-w", "/workspace/ne301",  # Set working directory to project root
         ])
         
-        # 不在容器内时，也验证文件存在
+        # When not in container, also verify files exist
         if model_name:
             local_tflite = ne301_project_path / "Model" / "weights" / f"{model_name}.tflite"
             local_json = ne301_project_path / "Model" / "weights" / f"{model_name}.json"
@@ -818,11 +818,11 @@ def _build_with_docker(
                 )
             logger.info(f"[NE301] Validation passed: Files exist in local path")
     
-    # make model 需要在项目根目录执行
-    # 使用 bash -c 来执行命令，容器的入口脚本会在执行命令时提供必要的环境变量
-    # 先验证文件存在，然后再执行编译
+    # make model needs to be executed in project root directory
+    # Use bash -c to execute command, container entry script will provide necessary environment variables when executing command
+    # Verify files exist first, then execute compilation
     if model_name:
-        # 改进验证命令：分别检查 .tflite 和 .json 文件，并列出目录内容用于调试
+        # Improved verification command: separately check .tflite and .json files, and list directory contents for debugging
         verify_cmd = (
             f"cd /workspace/ne301 && "
             f"echo '[DEBUG] ========================================' && "
@@ -873,13 +873,13 @@ def _build_with_docker(
         "bash", "-c", verify_cmd
     ])
     
-    logger.info(f"Running Docker build command: {' '.join(docker_cmd[:10])}...")  # 只显示前10个参数，避免日志过长
+    logger.info(f"Running Docker build command: {' '.join(docker_cmd[:10])}...")  # Only show first 10 parameters to avoid log being too long
     logger.info(f"[NE301] Docker mount path: {mount_path if is_in_container else ne301_project_path}")
     logger.info(f"[NE301] Model name: {model_name}")
     logger.info(debug_info)
     
     try:
-        # 实时输出日志，同时捕获输出
+        # Real-time output logs while capturing output
         result = subprocess.Popen(
             docker_cmd,
             stdout=subprocess.PIPE,
@@ -889,12 +889,12 @@ def _build_with_docker(
             universal_newlines=True
         )
         
-        # 实时输出并收集日志
+        # Real-time output and collect logs
         output_lines = []
         logger.info("[NE301] Starting compilation, real-time logs:")
         print("[NE301] Starting compilation, real-time logs:")
         
-        # 使用线程或者直接读取，设置超时
+        # Use thread or direct read, set timeout
         output_queue = queue.Queue()
         def read_output():
             try:
@@ -903,38 +903,38 @@ def _build_with_docker(
             except Exception as e:
                 output_queue.put(f"[Error reading output] {e}")
             finally:
-                output_queue.put(None)  # 结束标志
+                output_queue.put(None)  # End marker
         
         reader_thread = threading.Thread(target=read_output, daemon=True)
         reader_thread.start()
         
-        # 读取输出并实时打印
-        timeout = 600  # 10 分钟超时
+        # Read output and print in real-time
+        timeout = 600  # 10 minute timeout
         start_time = time.time()
         while True:
             try:
-                # 检查是否超时
+                # Check if timeout
                 elapsed = time.time() - start_time
                 if elapsed > timeout:
                     result.terminate()
                     result.wait()
                     raise subprocess.TimeoutExpired(docker_cmd, timeout)
                 
-                # 非阻塞读取队列
+                # Non-blocking queue read
                 try:
                     line = output_queue.get(timeout=1.0)
                     if line is None:
                         break
                     line = line.rstrip('\n\r')
                     if line.strip():
-                        # 实时打印到控制台
+                        # Print to console in real-time
                         logger.info(f"[NE301 Build] {line}")
                         print(f"[NE301 Build] {line}")
                         output_lines.append(line)
                 except queue.Empty:
-                    # 检查进程是否已结束
+                    # Check if process has ended
                     if result.poll() is not None:
-                        # 进程已结束，读取剩余输出
+                        # Process ended, read remaining output
                         remaining = result.stdout.read()
                         if remaining:
                             for line in remaining.splitlines():
@@ -949,13 +949,13 @@ def _build_with_docker(
                 logger.error(f"[NE301] Error reading output: {e}")
                 break
         
-        # 等待进程完成
+        # Wait for process to complete
         return_code = result.wait()
         
-        # 构建完整的输出
+        # Build complete output
         full_output = '\n'.join(output_lines)
         
-        # 创建一个类似 subprocess.CompletedProcess 的对象
+        # Create a subprocess.CompletedProcess-like object
         class CompletedProcess:
             def __init__(self, returncode, stdout, stderr=None):
                 self.returncode = returncode
@@ -967,21 +967,21 @@ def _build_with_docker(
         if result.returncode != 0:
             error_msg = result.stderr or result.stdout
             
-            # 过滤掉入口脚本的帮助信息，只提取真正的错误
+            # Filter out entry script help information, only extract real errors
             error_lines = error_msg.split('\n')
             real_errors = []
             skip_help = False
             for line in error_lines:
-                # 如果遇到 "No rule to make target" 或 "Error" 或 "Stop" 等关键字，说明是真实错误
+                # If encountering keywords like "No rule to make target" or "Error" or "Stop", it's a real error
                 if any(keyword in line for keyword in ["No rule to make target", "Error", "Stop", "make:", "***"]):
                     skip_help = True
                 if skip_help or not any(keyword in line for keyword in ["=========================================", "Available Commands", "make model", "✓"]):
-                    if line.strip() and not line.startswith('\x1b'):  # 排除 ANSI 颜色代码行和空行
+                    if line.strip() and not line.startswith('\x1b'):  # Exclude ANSI color code lines and empty lines
                         real_errors.append(line)
             
             error_msg_clean = '\n'.join(real_errors) if real_errors else error_msg
             
-            # 如果是挂载路径问题，提供更友好的错误信息
+            # If it's a mount path issue, provide more friendly error message
             if "Mounts denied" in error_msg or "not shared from the host" in error_msg:
                 logger.error("Docker mount path failed (Docker-in-Docker limitation)")
                 logger.error("Recommended solutions:")
@@ -990,29 +990,29 @@ def _build_with_docker(
                 logger.error(f"3. Or use host path: uncomment ./ne301:/app/ne301 in docker-compose.yml")
             
             logger.error(f"Docker build failed: {error_msg_clean}")
-            logger.error(f"Full stdout: {result.stdout[:1000]}...")  # 只显示前1000字符
+            logger.error(f"Full stdout: {result.stdout[:1000]}...")  # Only show first 1000 characters
             raise RuntimeError(f"NE301 model compilation failed: {error_msg_clean}")
         
         logger.info("Docker build and package completed successfully")
         print("[NE301] Build and package completed successfully")
         
-        # 先查找打包后的文件（设备可更新的包，格式：*_v*_pkg.bin）
+        # First search for packaged files (device update package, format: *_v*_pkg.bin)
         build_dir = ne301_project_path / "build"
         pkg_files = []
         if build_dir.exists():
-            # 查找所有 _pkg.bin 文件（可能是 ne301_Model_v*_pkg.bin）
+            # Find all _pkg.bin files (might be ne301_Model_v*_pkg.bin)
             pkg_files = list(build_dir.glob("*_pkg.bin"))
-            # 按修改时间排序，最新的在前
+            # Sort by modification time, newest first
             pkg_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
         
-        # 优先返回打包后的文件（设备可更新的包）
+        # Prefer returning packaged files (device update package)
         model_bin = None
         if pkg_files:
             model_bin = pkg_files[0]
             logger.info(f"[NE301] Update package generated: {model_bin}")
             print(f"[NE301] Update package generated: {model_bin}")
         else:
-            # 如果没有找到打包文件，尝试查找原始的 .bin 文件
+            # If packaged file not found, try to find original .bin file
             logger.warning("[NE301] Update package not found, checking for raw .bin file...")
             print("[NE301] Update package not found, checking for raw .bin file...")
             possible_paths = [
@@ -1033,7 +1033,7 @@ def _build_with_docker(
             print("[NE301] Compilation completed but model package file not found")
             logger.error("[NE301] Checked the following paths:")
             print("[NE301] Checked the following paths:")
-            # 列出 build 目录内容以便调试
+            # List build directory contents for debugging
             build_dirs = [
                 ne301_project_path / "build",
                 ne301_project_path / "Model" / "build",
@@ -1062,15 +1062,15 @@ def _build_with_docker(
 
 
 def _build_local(ne301_project_path: Path) -> Optional[Path]:
-    """本地编译（需要安装 NE301 开发环境）"""
+    """Local compilation (requires NE301 development environment installed)"""
     ne301_project_path = Path(ne301_project_path).resolve()
     
-    # 在项目目录执行 make model，然后 make pkg-model
+    # Execute make model in project directory, then make pkg-model
     logger.info(f"Running local build and package in {ne301_project_path}")
     print(f"[NE301] Running local build and package in {ne301_project_path}")
 
     try:
-        # 先执行 make model
+        # First execute make model
         cmd_build = ["make", "model"]
         logger.info(f"[NE301] Step 1/2: Building model...")
         print(f"[NE301] Step 1/2: Building model...")
@@ -1079,7 +1079,7 @@ def _build_local(ne301_project_path: Path) -> Optional[Path]:
             cwd=str(ne301_project_path),
             capture_output=True,
             text=True,
-            timeout=600  # 10 分钟超时
+            timeout=600  # 10 minute timeout
         )
 
         if result_build.returncode != 0:
@@ -1087,7 +1087,7 @@ def _build_local(ne301_project_path: Path) -> Optional[Path]:
             print(f"[NE301] Model build failed: {result_build.stderr or result_build.stdout}")
             raise RuntimeError(f"NE301 model compilation failed: {result_build.stderr or result_build.stdout}")
 
-        # 再执行 make pkg-model
+        # Then execute make pkg-model
         cmd_pkg = ["make", "pkg-model"]
         logger.info(f"[NE301] Step 2/2: Creating update package...")
         print(f"[NE301] Step 2/2: Creating update package...")
@@ -1096,7 +1096,7 @@ def _build_local(ne301_project_path: Path) -> Optional[Path]:
             cwd=str(ne301_project_path),
             capture_output=True,
             text=True,
-            timeout=300  # 5 分钟超时（打包应该很快）
+            timeout=300  # 5 minute timeout (packaging should be fast)
         )
 
         if result_pkg.returncode != 0:
@@ -1105,13 +1105,13 @@ def _build_local(ne301_project_path: Path) -> Optional[Path]:
             logger.warning("[NE301] Will try to find raw .bin file instead")
             print("[NE301] Will try to find raw .bin file instead")
 
-        # 优先查找打包后的文件（设备可更新的包）
+        # Prefer searching for packaged files (device update package)
         build_dir = ne301_project_path / "build"
         pkg_files = []
         if build_dir.exists():
-            # 查找所有 _pkg.bin 文件
+            # Find all _pkg.bin files
             pkg_files = list(build_dir.glob("*_pkg.bin"))
-            # 按修改时间排序，最新的在前
+            # Sort by modification time, newest first
             pkg_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
         
         if pkg_files:
@@ -1120,7 +1120,7 @@ def _build_local(ne301_project_path: Path) -> Optional[Path]:
             print(f"[NE301] Update package generated: {model_bin}")
             return model_bin
         
-        # 如果没有找到打包文件，尝试查找原始的 .bin 文件
+        # If packaged file not found, try to find original .bin file
         model_bin = ne301_project_path / "build" / "ne301_Model.bin"
         if model_bin.exists():
             logger.warning(f"[NE301] Found raw .bin file (packaging may have failed): {model_bin}")
@@ -1132,9 +1132,9 @@ def _build_local(ne301_project_path: Path) -> Optional[Path]:
             return None
             
     except FileNotFoundError:
-        raise RuntimeError("本地未找到 make 命令，请安装 NE301 开发环境或使用 Docker 模式")
+        raise RuntimeError("make command not found locally, please install NE301 development environment or use Docker mode")
     except subprocess.TimeoutExpired:
-        raise RuntimeError("NE301 模型编译超时（超过 10 分钟）")
+        raise RuntimeError("NE301 model compilation timeout (exceeded 10 minutes)")
     except Exception as e:
         logger.error(f"Local build exception: {e}")
         raise

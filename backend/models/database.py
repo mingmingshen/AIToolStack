@@ -1,4 +1,4 @@
-"""数据库模型定义"""
+"""Database model definitions"""
 from sqlalchemy import create_engine, Column, Integer, String, Float, Text, DateTime, Boolean, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
@@ -11,7 +11,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 class Project(Base):
-    """项目表"""
+    """Project table"""
     __tablename__ = "projects"
     
     id = Column(String, primary_key=True)  # project_id (UUID)
@@ -20,19 +20,19 @@ class Project(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
-    # 关联关系
+    # Relationships
     images = relationship("Image", back_populates="project", cascade="all, delete-orphan")
     classes = relationship("Class", back_populates="project", cascade="all, delete-orphan")
 
 
 class Image(Base):
-    """图像表"""
+    """Image table"""
     __tablename__ = "images"
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     project_id = Column(String, ForeignKey("projects.id"), nullable=False)
     filename = Column(String, nullable=False)
-    path = Column(String, nullable=False)  # 相对路径
+    path = Column(String, nullable=False)  # Relative path
     width = Column(Integer)
     height = Column(Integer)
     status = Column(String, default="UNLABELED")  # UNLABELED, LABELED, REVIEWED
@@ -40,39 +40,39 @@ class Image(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
-    # 关联关系
+    # Relationships
     project = relationship("Project", back_populates="images")
     annotations = relationship("Annotation", back_populates="image", cascade="all, delete-orphan")
 
 
 class Class(Base):
-    """类别表"""
+    """Class table"""
     __tablename__ = "classes"
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     project_id = Column(String, ForeignKey("projects.id"), nullable=False)
     name = Column(String, nullable=False)
-    color = Column(String, nullable=False)  # HEX 颜色代码
-    shortcut_key = Column(String)  # 快捷键 (1-9)
+    color = Column(String, nullable=False)  # HEX color code
+    shortcut_key = Column(String)  # Shortcut key (1-9)
     created_at = Column(DateTime, default=datetime.utcnow)
     
-    # 关联关系
+    # Relationships
     project = relationship("Project", back_populates="classes")
     annotations = relationship("Annotation", back_populates="class_")
 
 
 class Annotation(Base):
-    """标注表"""
+    """Annotation table"""
     __tablename__ = "annotations"
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     image_id = Column(Integer, ForeignKey("images.id"), nullable=False)
     class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
     
-    # 标注类型: bbox, polygon, keypoint
+    # Annotation type: bbox, polygon, keypoint
     type = Column(String, nullable=False)
     
-    # 标注数据 (JSON 格式存储)
+    # Annotation data (stored in JSON format)
     # bbox: {"x_min": float, "y_min": float, "x_max": float, "y_max": float}
     # polygon: {"points": [[x, y], ...]}
     # keypoint: {"points": [[x, y, index], ...], "skeleton": [[i, j], ...]}
@@ -81,13 +81,13 @@ class Annotation(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
-    # 关联关系
+    # Relationships
     image = relationship("Image", back_populates="annotations")
     class_ = relationship("Class", back_populates="annotations")
 
 
 class TrainingRecord(Base):
-    """训练记录表"""
+    """Training record table"""
     __tablename__ = "training_records"
 
     training_id = Column(String, primary_key=True)
@@ -100,7 +100,7 @@ class TrainingRecord(Base):
     imgsz = Column(Integer, nullable=True)
     batch = Column(Integer, nullable=True)
     device = Column(String, nullable=True)
-    metrics = Column(Text, nullable=True)  # JSON 字符串
+    metrics = Column(Text, nullable=True)  # JSON string
     error = Column(Text, nullable=True)
     model_path = Column(Text, nullable=True)
     log_count = Column(Integer, default=0)
@@ -109,7 +109,7 @@ class TrainingRecord(Base):
 
 
 class TrainingLog(Base):
-    """训练日志表"""
+    """Training log table"""
     __tablename__ = "training_logs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -122,12 +122,12 @@ class TrainingLog(Base):
 
 
 def init_db():
-    """初始化数据库，创建所有表"""
+    """Initialize database, create all tables"""
     Base.metadata.create_all(bind=engine)
 
 
 def get_db():
-    """获取数据库会话"""
+    """Get database session"""
     db = SessionLocal()
     try:
         yield db

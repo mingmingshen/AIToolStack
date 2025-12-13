@@ -44,20 +44,20 @@ interface TrainingRequest {
   imgsz: number;
   batch: number;
   device?: string;
-  // 学习率相关
+  // Learning rate related
   lr0?: number;
   lrf?: number;
-  // 优化器相关
+  // Optimizer related
   optimizer?: string;
   momentum?: number;
   weight_decay?: number;
-  // 训练控制
+  // Training control
   patience?: number;
   workers?: number;
   val?: boolean;
   save_period?: number;
   amp?: boolean;
-  // 数据增强（高级选项）
+  // Data augmentation (advanced options)
   hsv_h?: number;
   hsv_s?: number;
   hsv_v?: number;
@@ -103,20 +103,20 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
     imgsz: 640,
     batch: 16,
     device: undefined,
-    // 学习率相关
+    // Learning rate related
     lr0: undefined,
     lrf: undefined,
-    // 优化器相关
+    // Optimizer related
     optimizer: undefined,
     momentum: undefined,
     weight_decay: undefined,
-    // 训练控制
+    // Training control
     patience: undefined,
     workers: undefined,
     val: undefined,
     save_period: undefined,
     amp: undefined,
-    // 数据增强（高级选项）
+    // Data augmentation (advanced options)
     hsv_h: undefined,
     hsv_s: undefined,
     hsv_v: undefined,
@@ -138,7 +138,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
   const currentStatus = trainingRecords.find(r => r.training_id === selectedTrainingId) || 
                        (trainingRecords.length > 0 ? trainingRecords[0] : null);
 
-  // 获取训练记录列表的函数
+  // Function to fetch training record list
   const fetchRecords = useCallback(async () => {
     if (!projectId) return;
 
@@ -147,7 +147,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
       const data = await response.json();
       setTrainingRecords(data);
       
-      // 如果没有选中的训练，选择最新的（第一个）
+      // If no training is selected, select the latest (first one)
       setSelectedTrainingId(prev => {
         if (!prev && data.length > 0) {
           return data[0].training_id;
@@ -155,16 +155,16 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
         return prev;
       });
       
-      // 检查是否有正在运行的训练
+      // Check if there is a running training
       const hasRunningTraining = data.some((r: TrainingRecord) => r.status === 'running');
       
-      // 如果有正在运行的训练，且还没有设置轮询，则设置轮询
+      // If there is a running training and polling is not set yet, set polling
       if (hasRunningTraining && !recordsIntervalRef.current) {
         recordsIntervalRef.current = setInterval(() => {
           fetchRecords();
         }, 5000);
       } else if (!hasRunningTraining && recordsIntervalRef.current) {
-        // 如果没有正在运行的训练，清除轮询
+        // If there is no running training, clear polling
         clearInterval(recordsIntervalRef.current);
         recordsIntervalRef.current = null;
       }
@@ -173,17 +173,17 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
     }
   }, [projectId]);
 
-  // 获取训练记录列表
+  // Fetch training record list
   useEffect(() => {
     if (!projectId) return;
 
-    // 清除之前的轮询
+    // Clear previous polling
     if (recordsIntervalRef.current) {
       clearInterval(recordsIntervalRef.current);
       recordsIntervalRef.current = null;
     }
 
-    // 首次获取
+    // First fetch
     fetchRecords();
 
     return () => {
@@ -194,23 +194,23 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
     };
   }, [projectId, fetchRecords]);
 
-  // 获取选中训练的日志
+  // Fetch logs for selected training
   useEffect(() => {
     if (!selectedTrainingId) {
       setTrainingLogs([]);
-      // 清除之前的轮询
+      // Clear previous polling
       if (logsIntervalRef.current) {
         clearInterval(logsIntervalRef.current);
         logsIntervalRef.current = null;
       }
-      // 重置测试和量化相关状态
+      // Reset test and quantization related state
       setTestImage(null);
       setTestResults(null);
       setQuantResult(null);
       return;
     }
     
-    // 切换训练记录时，重置测试和量化相关状态
+    // When switching training records, reset test and quantization related state
     setTestImage(null);
     setTestResults(null);
     setQuantResult(null);
@@ -221,16 +221,16 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
         const data = await response.json();
         setTrainingLogs(data.logs || []);
         
-        // 同时获取训练状态来判断是否需要继续轮询
+        // Also fetch training status to determine if polling should continue
         const statusResponse = await fetch(`${API_BASE_URL}/projects/${projectId}/train/status?training_id=${selectedTrainingId}`);
         const statusData = await statusResponse.json();
         const isRunning = statusData?.status === 'running';
         
-        // 如果训练中，且还没有设置轮询，则设置轮询
+        // If training is running and polling is not set yet, set polling
         if (isRunning && !logsIntervalRef.current) {
           logsIntervalRef.current = setInterval(fetchLogs, 2000);
         } else if (!isRunning && logsIntervalRef.current) {
-          // 如果训练已完成/失败，清除轮询
+          // If training is completed/failed, clear polling
           clearInterval(logsIntervalRef.current);
           logsIntervalRef.current = null;
         }
@@ -239,13 +239,13 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
       }
     };
 
-    // 清除之前的轮询
+    // Clear previous polling
     if (logsIntervalRef.current) {
       clearInterval(logsIntervalRef.current);
       logsIntervalRef.current = null;
     }
 
-    // 首次获取
+    // First fetch
     fetchLogs();
 
     return () => {
@@ -256,7 +256,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
     };
   }, [projectId, selectedTrainingId]);
 
-  // 清理量化定时器
+  // Cleanup quantization timers
   useEffect(() => {
     return () => {
       if (quantTimeoutRef.current) {
@@ -270,13 +270,13 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
     };
   }, []);
 
-  // 实时更新量化已用时间
+  // Real-time update quantization elapsed time
   useEffect(() => {
     if (isQuanting && quantStartTime) {
-      // 立即更新一次
+      // Update immediately once
       setQuantElapsedTime(Math.floor((Date.now() - quantStartTime) / 1000));
       
-      // 每秒更新一次
+      // Update every second
       quantTimerRef.current = setInterval(() => {
         setQuantElapsedTime(Math.floor((Date.now() - quantStartTime) / 1000));
       }, 1000);
@@ -288,16 +288,16 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
         }
       };
     } else {
-      // 量化停止时，清除定时器
+      // When quantization stops, clear timer
       if (quantTimerRef.current) {
         clearInterval(quantTimerRef.current);
         quantTimerRef.current = null;
       }
-      // 保持最终的时间，不要重置
+      // Keep final time, don't reset
     }
   }, [isQuanting, quantStartTime]);
 
-  // 自动滚动到底部
+  // Auto scroll to bottom
   useEffect(() => {
     if (logsEndRef.current) {
       logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
@@ -317,13 +317,13 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || '启动训练失败');
+        throw new Error(error.detail || 'Failed to start training');
       }
 
       const data = await response.json();
-      // 训练启动后，立即刷新训练记录列表
+      // After training starts, immediately refresh training record list
       setShowConfigModal(false);
-      // 重置配置
+      // Reset configuration
       setTrainingConfig({
         model_size: 'n',
         epochs: 100,
@@ -332,10 +332,10 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
         device: undefined
       });
       
-      // 立即刷新训练记录列表，以便显示新创建的记录
+      // Immediately refresh training record list to display newly created record
       await fetchRecords();
       
-      // 如果返回了训练ID，选中它
+      // If training ID is returned, select it
       if (data.training_id) {
         setSelectedTrainingId(data.training_id);
       }
@@ -361,7 +361,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
         const error = await response.json();
         throw new Error(error.detail || t('training.stopTrainingFailed'));
       }
-      // 停止后刷新记录与日志
+      // After stopping, refresh records and logs
       await fetchRecords();
     } catch (error: any) {
       alert(`${t('training.stopTrainingFailed')}: ${error.message}`);
@@ -385,13 +385,13 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
         throw new Error(error.detail || t('training.deleteFailed'));
       }
 
-      // 如果删除的是当前选中的记录，切换到其他记录
+      // If deleted record is currently selected, switch to another record
       if (selectedTrainingId === trainingId) {
         const remaining = trainingRecords.filter(r => r.training_id !== trainingId);
         setSelectedTrainingId(remaining.length > 0 ? remaining[0].training_id : null);
       }
       
-      // 刷新训练记录列表
+      // Refresh training record list
       await fetchRecords();
     } catch (error: any) {
       alert(`${t('training.deleteFailed')}: ${error.message}`);
@@ -467,7 +467,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
       const a = document.createElement('a');
       a.href = url;
       
-      // 从响应头获取文件名，或使用默认名称
+      // Get filename from response header, or use default name
       const contentDisposition = response.headers.get('content-disposition');
       let filename = `${fileType}_${selectedTrainingId}`;
       if (contentDisposition) {
@@ -476,7 +476,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
           filename = filenameMatch[1];
         }
       } else {
-        // 根据文件类型设置默认扩展名
+        // Set default extension based on file type
         const extensions: { [key: string]: string } = {
           'tflite': '.tflite',
           'ne301_tflite': '.tflite',
@@ -500,7 +500,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // 预览图片
+    // Preview image
     const reader = new FileReader();
     reader.onload = (event) => {
       setTestImage(event.target?.result as string);
@@ -516,7 +516,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
 
     setIsTesting(true);
     try {
-      // 将base64转换为File对象
+      // Convert base64 to File object
       const base64Data = testImage.split(',')[1];
       const byteCharacters = atob(base64Data);
       const byteNumbers = new Array(byteCharacters.length);
@@ -552,7 +552,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
       console.error('[Test] Error:', error);
       const errorMessage = error.message || 'Unknown error';
       alert(`${t('training.test.failed')}: ${errorMessage}`);
-      // 即使出错也重置状态，允许重试
+      // Even if error occurs, reset state to allow retry
       setTestResults(null);
     } finally {
       setIsTesting(false);
@@ -1485,7 +1485,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                 return;
               }
             }
-            // 清理定时器和状态
+            // Cleanup timers and state
             if (quantTimeoutRef.current) {
               clearTimeout(quantTimeoutRef.current);
               quantTimeoutRef.current = null;
@@ -1506,7 +1506,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                         return;
                       }
                     }
-                    // 清理定时器和状态
+                    // Cleanup timers and state
                     if (quantTimeoutRef.current) {
                       clearTimeout(quantTimeoutRef.current);
                       quantTimeoutRef.current = null;
@@ -1523,7 +1523,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
               </div>
               
               <div className="config-modal-content">
-                {/* 表单：只在未开始量化且无结果时显示 */}
+                {/* Form: only show when quantization hasn't started and no result */}
                 {!isQuanting && !quantResult && (
                   <>
                 <div className="config-item">
@@ -1577,7 +1577,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                   </>
                 )}
 
-                {/* 等待过程：量化进行中时显示 */}
+                {/* Waiting process: show when quantization is in progress */}
                 {isQuanting && (
                   <div className="quant-progress-section">
                     <div className="quant-progress-header">
@@ -1609,7 +1609,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                   </div>
                 )}
 
-                {/* 结果：量化完成后显示 */}
+                {/* Result: show when quantization is completed */}
                 {quantResult && !isQuanting && (
                   <div className="quant-result">
                     <div className="quant-result-message">
@@ -1696,12 +1696,12 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                     setQuantStartTime(startTime);
                     setQuantElapsedTime(0);
                     
-                    // 清除之前的超时定时器
+                    // Clear previous timeout timer
                     if (quantTimeoutRef.current) {
                       clearTimeout(quantTimeoutRef.current);
                     }
                     
-                    // 设置进度提示的定时更新
+                    // Set timed updates for progress hints
                     const progressSteps = [
                       { delay: 3000, message: t('quantization.loadingModel') },
                       { delay: 8000, message: t('quantization.quantizing') },
@@ -1726,7 +1726,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                         { method: 'POST' }
                       );
                       
-                      // 清除所有进度提示定时器
+                      // Clear all progress hint timers
                       if (quantTimeoutRef.current) {
                         clearTimeout(quantTimeoutRef.current);
                         quantTimeoutRef.current = null;
@@ -1740,35 +1740,35 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                       const data = await response.json();
                       setQuantResult(data);
                       
-                      // 显示成功消息，但不使用 alert（更友好的方式）
+                      // Show success message, but don't use alert (more user-friendly)
                       const finalElapsedTime = quantElapsedTime || (quantStartTime ? Math.floor((Date.now() - quantStartTime) / 1000) : 0);
                       const minutes = Math.floor(finalElapsedTime / 60);
                       const seconds = finalElapsedTime % 60;
                       const timeStr = minutes > 0 ? `${minutes}${t('quantization.minutes', '分')}${seconds}${t('quantization.seconds')}` : `${seconds}${t('quantization.seconds')}`;
                       setQuantProgress(`${t('quantization.success')}: ${timeStr}`);
                       
-                      // 立即清除进度提示，直接显示结果
+                      // Immediately clear progress hint, show result directly
                       setTimeout(() => {
                         setQuantProgress('');
                       }, 100);
                     } catch (error: any) {
-                      // 清除进度提示定时器
+                      // Clear progress hint timer
                       if (quantTimeoutRef.current) {
                         clearTimeout(quantTimeoutRef.current);
                         quantTimeoutRef.current = null;
                       }
                       
-                      const errorMessage = error.message || '未知错误';
+                      const errorMessage = error.message || 'Unknown error';
                       setQuantProgress(`✗ ${t('quantization.failed')}: ${errorMessage}`);
                       
-                      // 5秒后显示 alert，让用户先看到进度提示中的错误消息
+                      // Show alert after 5 seconds, let user see error message in progress hint first
                       setTimeout(() => {
                         alert(`${t('quantization.failed')}: ${errorMessage}`);
                       }, 500);
                     } finally {
                       setIsQuanting(false);
                       setQuantStartTime(null);
-                      // 不清除 quantElapsedTime，保持最终时间显示
+                      // Don't clear quantElapsedTime, keep final time display
                     }
                   }}
                 >
@@ -1776,7 +1776,7 @@ export const TrainingPanel: React.FC<TrainingPanelProps> = ({ projectId, onClose
                 </button>
                 )}
                 
-                {/* 完成后的操作按钮 */}
+                {/* Action buttons after completion */}
                 {quantResult && !isQuanting && (
                   <button
                     className="btn-start-training"

@@ -25,7 +25,7 @@ function App() {
   const [trainingProjectId, setTrainingProjectId] = useState<string | null>(null);
 
   useEffect(() => {
-    // 加载项目列表
+    // Load project list
     fetchProjects();
   }, []);
 
@@ -39,7 +39,7 @@ function App() {
       setProjects(data);
     } catch (error) {
       console.error('Failed to fetch projects:', error);
-      // 如果后端未启动，显示空列表而不是报错
+      // If backend is not started, show empty list instead of error
       setProjects([]);
     }
   };
@@ -50,7 +50,7 @@ function App() {
 
   const handleBackToProjects = () => {
     setSelectedProject(null);
-    setActiveMenu('projects'); // 返回到项目管理菜单
+    setActiveMenu('projects'); // Return to project management menu
     fetchProjects();
   };
 
@@ -75,9 +75,9 @@ function App() {
     setTrainingProjectId(null);
   };
 
-  // 渲染主要内容
+  // Render main content
   const renderMainContent = () => {
-    // 如果正在显示训练面板，显示训练面板
+    // If training panel is being displayed, show training panel
     if (showTrainingPanel && trainingProjectId) {
       return (
         <TrainingPanel
@@ -87,7 +87,7 @@ function App() {
       );
     }
 
-    // 如果选择了项目，显示标注界面
+    // If project is selected, show annotation interface
     if (selectedProject) {
       return (
         <AnnotationWorkbench
@@ -98,7 +98,7 @@ function App() {
       );
     }
 
-    // 根据当前菜单显示不同内容
+    // Display different content based on current menu
     switch (activeMenu) {
       case 'dashboard':
         return (
@@ -125,7 +125,7 @@ function App() {
   }
   };
 
-  // 判断当前是否显示标注界面，如果是则移除 padding
+  // Determine if annotation interface is currently displayed, if so remove padding
   const isAnnotationView = selectedProject !== null;
 
   return (

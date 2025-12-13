@@ -8,7 +8,7 @@ export const useWebSocket = (
   const wsRef = useRef<WebSocket | null>(null);
   const onMessageRef = useRef(onMessage);
 
-  // 保持 onMessage 引用最新
+  // Keep onMessage reference up to date
   useEffect(() => {
     onMessageRef.current = onMessage;
   }, [onMessage]);
@@ -49,12 +49,12 @@ export const useWebSocket = (
         wasClean: event.wasClean
       });
       
-      // 如果不是正常关闭，尝试重连
+      // If not normal close, try to reconnect
       if (event.code !== 1000) {
         console.log('[WebSocket] Attempting to reconnect in 3 seconds...');
         setTimeout(() => {
           if (wsRef.current?.readyState === WebSocket.CLOSED || !wsRef.current) {
-            // 重新连接逻辑
+            // Reconnection logic
             console.log('[WebSocket] Reconnecting...');
           }
         }, 3000);
@@ -70,6 +70,6 @@ export const useWebSocket = (
       }
       wsRef.current = null;
     };
-  }, [projectId]); // 移除 onMessage 依赖，使用 ref 来访问最新值
+  }, [projectId]); // Remove onMessage dependency, use ref to access latest value
 };
 

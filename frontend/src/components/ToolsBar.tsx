@@ -9,7 +9,7 @@ interface ToolsBarProps {
   onToolChange: (tool: ToolType) => void;
 }
 
-// 图标组件包装器，解决 TypeScript 类型问题
+// Icon component wrapper to resolve TypeScript type issues
 const Icon: React.FC<{ component: React.ComponentType<any> }> = ({ component: Component }) => {
   return <Component />;
 };

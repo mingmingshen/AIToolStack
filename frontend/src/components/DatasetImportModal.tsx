@@ -8,7 +8,7 @@ interface DatasetImportModalProps {
   isOpen: boolean;
   onClose: () => void;
   onImportComplete?: () => void;
-  defaultProjectId?: string; // 默认选中的项目ID
+  defaultProjectId?: string; // Default selected project ID
 }
 
 interface UploadProgress {
@@ -34,7 +34,7 @@ export const DatasetImportModal: React.FC<DatasetImportModalProps> = ({
     if (isOpen) {
       setSelectedProjectId(defaultProjectId || '');
     } else {
-      // 重置状态
+      // Reset state
       setSelectedProjectId(defaultProjectId || '');
       setImportFormat('project_zip');
       setUploadProgress(null);
@@ -50,13 +50,13 @@ export const DatasetImportModal: React.FC<DatasetImportModalProps> = ({
     if (!files || files.length === 0) return;
 
     if (!selectedProjectId) {
-      alert(t('annotation.import.selectProjectFirst', '请先选择项目'));
+      alert(t('annotation.import.selectProjectFirst', 'Please select a project first'));
       return;
     }
 
     // Handle dataset format import (COCO / YOLO / Project ZIP)
     if (files.length !== 1) {
-      alert(t('annotation.import.singleFileRequired', '请选择一个数据集文件'));
+      alert(t('annotation.import.singleFileRequired', 'Please select a dataset file'));
       return;
     }
 
@@ -86,7 +86,7 @@ export const DatasetImportModal: React.FC<DatasetImportModalProps> = ({
         });
         
         if (result.errors && result.errors.length > 0) {
-          alert(`${message}\n\n${t('common.errorDetails', '失败详情')}：\n${result.errors.slice(0, 5).join('\n')}`);
+          alert(`${message}\n\n${t('common.errorDetails', 'Error details')}:\n${result.errors.slice(0, 5).join('\n')}`);
         } else {
           alert(message);
         }
@@ -96,12 +96,12 @@ export const DatasetImportModal: React.FC<DatasetImportModalProps> = ({
         }
         onClose();
       } else {
-        const errorData = await response.json().catch(() => ({ detail: t('annotation.import.importFailed', '导入失败') }));
-        alert(`${t('annotation.import.importFailed', '导入失败')}: ${errorData.detail || 'Unknown error'}`);
+        const errorData = await response.json().catch(() => ({ detail: t('annotation.import.importFailed', 'Import failed') }));
+        alert(`${t('annotation.import.importFailed', 'Import failed')}: ${errorData.detail || 'Unknown error'}`);
       }
     } catch (error) {
       console.error('Failed to import dataset:', error);
-      alert(`${t('annotation.import.importFailed', '导入失败')}: ${t('common.connectionError', '无法连接到服务器')}`);
+      alert(`${t('annotation.import.importFailed', 'Import failed')}: ${t('common.connectionError', 'Unable to connect to server')}`);
     } finally {
       setUploadProgress(null);
       setIsUploading(false);
@@ -113,7 +113,7 @@ export const DatasetImportModal: React.FC<DatasetImportModalProps> = ({
 
   const handleUploadClick = () => {
     if (!selectedProjectId) {
-      alert(t('annotation.import.selectProjectFirst', '请先选择项目'));
+      alert(t('annotation.import.selectProjectFirst', 'Please select a project first'));
       return;
     }
     fileInputRef.current?.click();

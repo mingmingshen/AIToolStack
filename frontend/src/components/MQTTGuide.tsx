@@ -3,7 +3,7 @@ import { IoChevronDown, IoChevronUp, IoInformationCircleOutline, IoCheckmarkCirc
 import { API_BASE_URL } from '../config';
 import './MQTTGuide.css';
 
-// 图标组件包装器
+// Icon component wrapper
 const Icon: React.FC<{ component: React.ComponentType<any> }> = ({ component: Component }) => {
   return <Component />;
 };
@@ -21,8 +21,8 @@ interface MQTTStatus {
   broker?: string;
   port?: number;
   topic?: string;
-  server_ip?: string;  // 服务器 IP 地址
-  server_port?: number;  // 服务器端口
+  server_ip?: string;  // Server IP address
+  server_port?: number;  // Server port
 }
 
 interface TestResult {
@@ -41,7 +41,7 @@ export const MQTTGuide: React.FC<MQTTGuideProps> = ({ projectId, projectName }) 
 
   useEffect(() => {
     fetchMQTTStatus();
-    // 每 5 秒刷新一次状态
+    // Refresh status every 5 seconds
     const interval = setInterval(fetchMQTTStatus, 5000);
     return () => clearInterval(interval);
   }, []);
@@ -70,7 +70,7 @@ export const MQTTGuide: React.FC<MQTTGuideProps> = ({ projectId, projectName }) 
         error_code: data.error_code
       });
       
-      // 测试后刷新状态
+      // Refresh status after test
       setTimeout(() => {
         fetchMQTTStatus();
       }, 1000);

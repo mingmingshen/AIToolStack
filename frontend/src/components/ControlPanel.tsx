@@ -5,7 +5,7 @@ import { API_BASE_URL } from '../config';
 import { IoTrash } from 'react-icons/io5';
 import './ControlPanel.css';
 
-// 图标组件包装器，解决 TypeScript 类型问题
+// Icon component wrapper to resolve TypeScript type issues
 const Icon: React.FC<{ component: React.ComponentType<any> }> = ({ component: Component }) => {
   return <Component />;
 };
@@ -57,46 +57,46 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 生成随机颜色（100种颜色）
+  // Generate random color (100 colors)
   const generateRandomColor = (): string => {
     const colors = [
-      // 红色系
+      // Red series
       '#FF6B6B', '#E74C3C', '#C0392B', '#FF4757', '#FF3838',
       '#FF6348', '#FF5733', '#FF4444', '#FF1744', '#D32F2F',
-      // 橙色系
+      // Orange series
       '#FFA07A', '#F39C12', '#E67E22', '#D35400', '#FF8C00',
       '#FF7F50', '#FF6B35', '#FF8C42', '#FF9500', '#FF6F00',
-      // 黄色系
+      // Yellow series
       '#F7DC6F', '#F1C40F', '#F39C12', '#FFD700', '#FFC107',
       '#FFEB3B', '#FFD54F', '#FFCA28', '#FFC300', '#FFD700',
-      // 绿色系
+      // Green series
       '#52BE80', '#1ABC9C', '#16A085', '#27AE60', '#2ECC71',
       '#4CAF50', '#8BC34A', '#66BB6A', '#81C784', '#A5D6A7',
-      // 青色/蓝绿色系
+      // Cyan/teal series
       '#EB814F', '#d46a2f', '#f59a6b', '#ffb891', '#ffc9a8',
       '#00ACC1', '#0097A7', '#00838F', '#26C6DA', '#4DD0E1',
-      // 蓝色系
+      // Blue series
       '#0A0D16', '#1a1d26', '#2a2d36', '#3a3d46', '#4a4d56',
       '#EB814F', '#d46a2f', '#c55a1f', '#f59a6b', '#ffb891',
-      // 紫色系
+      // Purple series
       '#9B59B6', '#8E44AD', '#BB8FCE', '#7B1FA2', '#6A1B9A',
       '#9C27B0', '#8E24AA', '#AB47BC', '#BA68C8', '#CE93D8',
-      // 粉色系
+      // Pink series
       '#E91E63', '#C2185B', '#F06292', '#EC407A', '#F48FB1',
       '#F8BBD0', '#FF4081', '#E91E63', '#AD1457', '#880E4F',
-      // 棕色系
+      // Brown series
       '#8D6E63', '#6D4C41', '#5D4037', '#795548', '#A1887F',
       '#BCAAA4', '#D7CCC8', '#8B4513', '#A0522D', '#CD853F',
-      // 灰色系
+      // Gray series
       '#7F8C8D', '#34495E', '#2C3E50', '#95A5A6', '#BDC3C7',
       '#78909C', '#607D8B', '#546E7A', '#455A64', '#37474F',
-      // 深色系
+      // Dark series
       '#2C3E50', '#34495E', '#1A1A1A', '#212121', '#263238',
       '#37474F', '#455A64', '#546E7A', '#607D8B', '#78909C',
-      // 亮色系
+      // Light series
       '#F5F5F5', '#FAFAFA', '#FFFFFF', '#E0E0E0', '#BDBDBD',
       '#9E9E9E', '#757575', '#616161', '#424242', '#212121',
-      // 特殊色系
+      // Special color series
       '#00E676', '#00C853', '#76FF03', '#C6FF00', '#FFEA00',
       '#FFC400', '#FF9100', '#FF3D00', '#D50000', '#C51162',
       '#EB814F', '#d46a2f', '#0A0D16', '#1a1d26', '#f59a6b',
@@ -107,7 +107,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   };
 
   const handleDeleteImage = async (imageId: number, event: React.MouseEvent) => {
-    event.stopPropagation(); // 阻止触发图片选择
+    event.stopPropagation(); // Prevent triggering image selection
     
     if (!window.confirm(t('annotation.deleteImageConfirm'))) {
       return;
@@ -124,7 +124,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         throw new Error(error.detail || t('annotation.deleteFailed'));
       }
       
-      // 通知父组件刷新图片列表
+      // Notify parent component to refresh image list
       if (onImageDelete) {
         onImageDelete();
       }
@@ -141,7 +141,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
     const fileArray = Array.from(files);
     
-    // 验证所有文件
+    // Validate all files
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/bmp', 'image/gif', 'image/webp'];
     const maxSize = 10 * 1024 * 1024; // 10MB
     
@@ -158,13 +158,13 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
       }
     });
 
-    // 显示无效文件提示
+    // Show invalid file warnings
     if (invalidFiles.length > 0) {
       alert(`${t('annotation.invalidFiles')}：\n${invalidFiles.join('\n')}\n\n${t('annotation.skipInvalidFiles')}`);
     }
 
     if (validFiles.length === 0) {
-      // 清空文件输入
+      // Clear file input
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -178,7 +178,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     let failCount = 0;
     const errors: string[] = [];
 
-    // 逐个上传文件
+    // Upload files one by one
     for (let i = 0; i < validFiles.length; i++) {
       const file = validFiles[i];
       setUploadProgress({
@@ -200,38 +200,38 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           successCount++;
         } else {
           failCount++;
-          const errorData = await response.json().catch(() => ({ detail: '上传失败' }));
-          errors.push(`${file.name}: ${errorData.detail || '上传失败'}`);
+          const errorData = await response.json().catch(() => ({ detail: 'Upload failed' }));
+          errors.push(`${file.name}: ${errorData.detail || 'Upload failed'}`);
         }
       } catch (error) {
         failCount++;
-        errors.push(`${file.name}: 无法连接到服务器`);
+        errors.push(`${file.name}: Unable to connect to server`);
         console.error(`Failed to upload ${file.name}:`, error);
         }
     }
 
-        // 清空文件输入，允许重复上传同一文件
+        // Clear file input to allow re-uploading same file
         if (fileInputRef.current) {
           fileInputRef.current.value = '';
         }
 
-    // 刷新图片列表
+    // Refresh image list
     if (successCount > 0 && onImageUpload) {
       onImageUpload();
       }
 
-    // 显示上传结果
+    // Show upload results
     setUploadProgress(null);
       setIsUploading(false);
 
     if (successCount > 0 && failCount === 0) {
-      // 全部成功
+      // All successful
       alert(t('annotation.uploadSuccess', { count: successCount }));
     } else if (successCount > 0 && failCount > 0) {
-      // 部分成功
-      alert(`${t('annotation.uploadPartial', { success: successCount, fail: failCount })}\n\n${t('common.errorDetails', '失败详情')}：\n${errors.join('\n')}`);
+      // Partially successful
+      alert(`${t('annotation.uploadPartial', { success: successCount, fail: failCount })}\n\n${t('common.errorDetails', 'Error details')}:\n${errors.join('\n')}`);
     } else {
-      // 全部失败
+      // All failed
       alert(`${t('annotation.uploadAllFailed', { count: failCount })}\n${errors.join('\n')}`);
     }
   };
@@ -260,7 +260,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
       if (response.ok) {
         setNewClassName('');
-        setNewClassColor(generateRandomColor()); // 重置为随机颜色
+        setNewClassColor(generateRandomColor()); // Reset to random color
         onCreateClass();
       } else {
         alert(t('annotation.createClassFailed'));
@@ -272,7 +272,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   };
 
   const handleDeleteClass = async (classId: number, event: React.MouseEvent) => {
-    event.stopPropagation(); // 阻止触发类别选择
+    event.stopPropagation(); // Prevent triggering class selection
     
     const classToDelete = classes.find(c => c.id === classId);
     if (!classToDelete) return;
@@ -291,7 +291,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         throw new Error(error.detail || t('annotation.deleteFailed'));
       }
       
-      onCreateClass(); // 刷新类别列表
+      onCreateClass(); // Refresh class list
     } catch (error: any) {
       alert(`${t('annotation.deleteClassFailed')}: ${error.message}`);
     }
@@ -310,7 +310,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             ) : (
               <div className="class-list">
                 {classes.map((cls, index) => {
-                  // 自动为前9个类别分配快捷键（如果没有设置）
+                  // Automatically assign shortcut keys to first 9 classes (if not set)
                   const shortcutKey = cls.shortcutKey || (index < 9 ? String(index + 1) : null);
                   return (
                     <div

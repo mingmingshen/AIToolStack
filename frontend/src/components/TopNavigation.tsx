@@ -4,7 +4,7 @@ import { LanguageSwitcher } from './LanguageSwitcher';
 import { IoHome, IoPricetag, IoPersonCircle } from 'react-icons/io5';
 import './TopNavigation.css';
 
-// 图标组件包装器
+// Icon component wrapper
 const Icon: React.FC<{ component: React.ComponentType<any> }> = ({ component: Component }) => {
   return <Component />;
 };

@@ -1,29 +1,42 @@
 # Overview
-AI Tool Stack is an end-to-end edge-AI toolkit for NeoEyes NE301 (and similar) devices, covering data collection, labeling, training, quantization, and deployment. It can be self-hosted and continuously updated.
+
+[English](README.md) | [中文](README.zh.md)
+
+AI Tool Stack is an end-to-end edge-AI toolkit for [NeoEyes NE301](https://github.com/camthink-ai/ne301), covering data collection, labeling, training, quantization, and deployment. It can be self-hosted and continuously updated.
 
 ![Dashboard](img/dashboard.png)
 ![AI Model Project](img/ai-model-project.png)
 ![Annotation Workbench](img/Annotation%20tool.png)
 
 ## Key Features
-- Data ingest & management: MQTT image ingest; project/image lists.
-- Annotation workbench: shortcut-driven labeling, class management, dataset import/export (COCO / YOLO / project ZIP), annotation history.
-- Training & testing: YOLO-based training and model testing.
-- Quantization & deployment: one-click NE301 model package export.
-- Export: YOLO training dataset, full annotation ZIP.
+- **Data ingest & management**: Camera image collection via MQTT, uploading data to project space for unified management.
+- **Annotation workbench**: Shortcut-driven labeling, class management, dataset import/export (COCO / YOLO / project annotation ZIP).
+- **Training & testing**: YOLO-based training and model testing. Currently supports YOLOv8n, with more models to be added in the future.
+- **Quantization & deployment**: One-click NE301 model package export. Deploy your model on devices without coding.
 
 ## Requirements
-- Docker & docker-compose (required)：(Optionally) If you need to generate the NE301 quantization model package, please pull the image in advance: 
+- Docker & docker-compose (required). Please refer to [Docker official installation guide](https://docs.docker.com/get-docker/) and [docker-compose installation documentation](https://docs.docker.com/compose/install/) for installation.
+- If you need to generate the NE301 quantization model package, please pull the image in advance: 
   ```
   docker pull camthink/ne301-dev:latest
   ```
 
+> **Related Project**: [NE301 - STM32N6 AI Vision Camera](https://github.com/camthink-ai/ne301) - The target device firmware and development repository.
+
 ## Quick Start (Docker)
+Clone the repository:
+```bash
+git clone https://github.com/camthink-ai/AIToolStack.git
+cd AIToolStack
+```
+Deploy with Docker:
 ```bash
 docker-compose build
 docker-compose up
 ```
-The frontend is built in-container (react-scripts) and the backend is FastAPI. Check container logs for the exposed frontend URL (usually http://localhost:8000 or mapped port).
+> **Note: Configuration parameters are now defined in the configuration file.**  
+> To modify parameters such as `MQTT_BROKER_HOST`, please edit the environment variables in `docker-compose.yml`.  
+> Ensure the address is accessible by NE301 devices (usually use the host machine's actual IP address, not `localhost`).
 
 ### Local Development (optional)
 Run frontend and backend separately:
@@ -31,28 +44,38 @@ Run frontend and backend separately:
 cd frontend && npm install && npm start
 cd backend  && pip install -r requirements.txt && uvicorn main:app --reload
 ```
-API routes live in `backend/api/routes.py`. Frontend config is in `frontend/src/config.ts`.
+API routes live in `backend/api/routes.py`  
+Frontend config is in `frontend/src/config.ts`.
 
-## Typical Workflow
-1. Create a project  
-2. Configure NE301 MQTT (server + topic)  
-3. Capture images (or upload manually)  
-4. Label images and manage classes  
-5. Train a model  
-6. Quantize to NE301 package  
-7. Deploy to NE301
+## AI Model Project Workflow
+The recommended workflow for AI Model Project is as follows:
 
-## Data Import / Export
-- Import: COCO (.json), YOLO (.zip), project export ZIP (images/ + annotations/ + classes.json)
-- Export: YOLO dataset, full annotation ZIP
+1. **Create a project**  
+   Create a new AI project on the page for subsequent data collection, management, and training.
 
-## Keyboard Shortcuts (common)
-- Navigate images: A / ←, D / →  
-- Tools: R rectangle, P polygon, V select  
-- Class select: 1–9 for first 9 classes  
-- Toggle annotations: H  
-- Undo/Redo: Ctrl/Cmd + Z, Ctrl/Cmd + Shift + Z  
-- Save: Ctrl/Cmd + S
+2. **Configure NE301 MQTT (server + topic)**  
+   Configure the MQTT broker address and topic for NE301 camera data push, ensuring data can be uploaded to the specified project. See MQTT information on the project page for details.
+
+3. **Capture images or upload manually**  
+   - Recommended: Use NE301 to capture on-site images (automatically uploaded via MQTT).  
+   - Alternatively: Manually upload local images to the current project to supplement data.
+
+4. **Data annotation and class management**  
+   Perform data annotation in the annotation workbench. Create and edit classes, with support for rectangle/polygon and other annotation tools.
+
+5. **Model training**  
+   Select annotated data and click the training button. Supports parameter adjustment such as epoch, batch size, model type, etc.
+
+6. **Quantize model / One-click export NE301 package**  
+   After training is complete, quantize and export the NE301-compatible model package with one click.
+
+7. **Deploy to NE301 device**  
+   Deploy the model package to NE301 through the device management page or manual operation. For detailed guide, see [NE301 Quick Start](https://wiki.camthink.ai/docs/neoeyes-ne301-series/quick-start).
+   
+**Example topology:**
+```
+[NE301 Camera] <───> [Router/LAN] <───> [Computer/Server running AI Tool Stack]
+```
 
 ## Roadmap
 - Model hub: standalone quantization and downloadable model library
@@ -80,18 +103,10 @@ API routes live in `backend/api/routes.py`. Frontend config is in `frontend/src/
 - Port conflicts: adjust mapped ports in `docker-compose.yml`.  
 - Slow annotation layer on fast navigation: caching added; still slow → reduce image size (JPEG/WebP) or check network/CPU.
 
-## Testing
-- If tests exist: run frontend lint/tests via `npm test` or backend tests via `pytest` (add when available).  
-- If absent: mark as TODO in issues; manual smoke: load project, navigate images, import/export datasets, train/quantize happy-path.
-
 ## Contributing
 - Issues & PRs welcome.  
 - Style: follow repo defaults (eslint/prettier for frontend, black/flake8 if configured for backend).  
 - Branching: fork & PR or feature branches; please keep changes scoped and include repro steps for bug fixes.
-
-## Security
-- Do not commit secrets/tokens.  
-- For security reports, contact maintainer privately (add email/contact here).
 
 ## License
 - Add your license of choice (e.g., MIT/Apache-2.0). Add `LICENSE` file and reference it here.

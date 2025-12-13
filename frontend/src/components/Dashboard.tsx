@@ -11,7 +11,7 @@ import {
 } from 'react-icons/io5';
 import './Dashboard.css';
 
-// 图标组件包装器
+// Icon component wrapper
 const Icon: React.FC<{ component: React.ComponentType<any>; className?: string }> = ({ 
   component: Component, 
   className 

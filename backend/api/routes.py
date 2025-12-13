@@ -1,4 +1,4 @@
-"""API 路由定义"""
+"""API route definitions"""
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File, Query, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
@@ -32,7 +32,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-# ========== Pydantic 模型 ==========
+# ========== Pydantic Models ==========
 
 class ProjectCreate(BaseModel):
     name: str
@@ -51,7 +51,7 @@ class ProjectResponse(BaseModel):
 
     @classmethod
     def from_orm(cls, obj: Project):
-        """从 ORM 对象创建响应模型"""
+        """Create response model from ORM object"""
         return cls(
             id=obj.id,
             name=obj.name,
@@ -67,46 +67,46 @@ class TrainingRequest(BaseModel):
     imgsz: int = 640
     batch: int = 16
     device: Optional[str] = None
-    # 学习率相关
-    lr0: Optional[float] = None  # 初始学习率
-    lrf: Optional[float] = None  # 最终学习率
-    # 优化器相关
+    # Learning rate related
+    lr0: Optional[float] = None  # Initial learning rate
+    lrf: Optional[float] = None  # Final learning rate
+    # Optimizer related
     optimizer: Optional[str] = None  # 'SGD', 'Adam', 'AdamW', 'RMSProp', 'auto'
-    momentum: Optional[float] = None  # 动量
-    weight_decay: Optional[float] = None  # 权重衰减
-    # 训练控制
-    patience: Optional[int] = None  # 早停耐心值
-    workers: Optional[int] = None  # 数据加载线程数
-    val: Optional[bool] = None  # 是否进行验证
-    save_period: Optional[int] = None  # 保存周期（-1表示不保存中间模型）
-    amp: Optional[bool] = None  # 是否使用混合精度训练
-    # 数据增强（高级选项）
-    hsv_h: Optional[float] = None  # HSV色调增强
-    hsv_s: Optional[float] = None  # HSV饱和度增强
-    hsv_v: Optional[float] = None  # HSV明度增强
-    degrees: Optional[float] = None  # 旋转角度
-    translate: Optional[float] = None  # 平移
-    scale: Optional[float] = None  # 缩放
-    shear: Optional[float] = None  # 剪切
-    perspective: Optional[float] = None  # 透视变换
-    flipud: Optional[float] = None  # 上下翻转概率
-    fliplr: Optional[float] = None  # 左右翻转概率
-    mosaic: Optional[float] = None  # Mosaic增强概率
-    mixup: Optional[float] = None  # Mixup增强概率
+    momentum: Optional[float] = None  # Momentum
+    weight_decay: Optional[float] = None  # Weight decay
+    # Training control
+    patience: Optional[int] = None  # Early stopping patience
+    workers: Optional[int] = None  # Data loading thread count
+    val: Optional[bool] = None  # Whether to perform validation
+    save_period: Optional[int] = None  # Save period (-1 means no intermediate model saving)
+    amp: Optional[bool] = None  # Whether to use mixed precision training
+    # Data augmentation (advanced options)
+    hsv_h: Optional[float] = None  # HSV hue augmentation
+    hsv_s: Optional[float] = None  # HSV saturation augmentation
+    hsv_v: Optional[float] = None  # HSV value augmentation
+    degrees: Optional[float] = None  # Rotation angle
+    translate: Optional[float] = None  # Translation
+    scale: Optional[float] = None  # Scaling
+    shear: Optional[float] = None  # Shearing
+    perspective: Optional[float] = None  # Perspective transformation
+    flipud: Optional[float] = None  # Vertical flip probability
+    fliplr: Optional[float] = None  # Horizontal flip probability
+    mosaic: Optional[float] = None  # Mosaic augmentation probability
+    mixup: Optional[float] = None  # Mixup augmentation probability
     
     class Config:
-        protected_namespaces = ()  # 解决 model_size 字段警告
+        protected_namespaces = ()  # Fix model_size field warning
 
 
 class ClassCreate(BaseModel):
     name: str
-    color: str  # HEX 颜色
+    color: str  # HEX color
     shortcut_key: str = None
 
 
 class AnnotationCreate(BaseModel):
     type: str  # bbox, polygon, keypoint
-    data: dict  # 标注数据
+    data: dict  # Annotation data
     class_id: int
 
 
@@ -115,11 +115,11 @@ class AnnotationUpdate(BaseModel):
     class_id: int = None
 
 
-# ========== 项目相关 ==========
+# ========== Project Related ==========
 
 @router.post("/projects", response_model=ProjectResponse)
 def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
-    """创建新项目"""
+    """Create new project"""
     project_id = str(uuid.uuid4())
     
     db_project = Project(
@@ -132,7 +132,7 @@ def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_project)
     
-    # 创建项目目录
+    # Create project directory
     (settings.DATASETS_ROOT / project_id / "raw").mkdir(parents=True, exist_ok=True)
     
     return ProjectResponse.from_orm(db_project)
@@ -140,14 +140,14 @@ def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
 
 @router.get("/projects", response_model=List[ProjectResponse])
 def list_projects(db: Session = Depends(get_db)):
-    """列出所有项目"""
+    """List all projects"""
     projects = db.query(Project).order_by(Project.created_at.desc()).all()
     return [ProjectResponse.from_orm(p) for p in projects]
 
 
 @router.get("/projects/{project_id}", response_model=ProjectResponse)
 def get_project(project_id: str, db: Session = Depends(get_db)):
-    """获取项目详情"""
+    """Get project details"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -156,7 +156,7 @@ def get_project(project_id: str, db: Session = Depends(get_db)):
 
 @router.delete("/projects/{project_id}")
 def delete_project(project_id: str, db: Session = Depends(get_db)):
-    """删除项目"""
+    """Delete project"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -164,7 +164,7 @@ def delete_project(project_id: str, db: Session = Depends(get_db)):
     db.delete(project)
     db.commit()
     
-    # 删除项目目录
+    # Delete project directory
     project_dir = settings.DATASETS_ROOT / project_id
     if project_dir.exists():
         import shutil
@@ -173,11 +173,11 @@ def delete_project(project_id: str, db: Session = Depends(get_db)):
     return {"message": "Project deleted"}
 
 
-# ========== 类别相关 ==========
+# ========== Class Related ==========
 
 @router.post("/projects/{project_id}/classes")
 def create_class(project_id: str, class_data: ClassCreate, db: Session = Depends(get_db)):
-    """创建类别"""
+    """Create class"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -198,14 +198,14 @@ def create_class(project_id: str, class_data: ClassCreate, db: Session = Depends
 
 @router.get("/projects/{project_id}/classes")
 def list_classes(project_id: str, db: Session = Depends(get_db)):
-    """列出项目所有类别"""
+    """List all classes in project"""
     classes = db.query(Class).filter(Class.project_id == project_id).all()
     return classes
 
 
 @router.delete("/projects/{project_id}/classes/{class_id}")
 def delete_class(project_id: str, class_id: int, db: Session = Depends(get_db)):
-    """删除类别"""
+    """Delete class"""
     db_class = db.query(Class).filter(
         Class.id == class_id,
         Class.project_id == project_id
@@ -214,7 +214,7 @@ def delete_class(project_id: str, class_id: int, db: Session = Depends(get_db)):
     if not db_class:
         raise HTTPException(status_code=404, detail="Class not found")
     
-    # 检查是否有标注使用此类别
+    # Check if any annotations use this class
     annotation_count = db.query(Annotation).filter(Annotation.class_id == class_id).count()
     if annotation_count > 0:
         raise HTTPException(
@@ -228,7 +228,7 @@ def delete_class(project_id: str, class_id: int, db: Session = Depends(get_db)):
     return {"message": "Class deleted"}
 
 
-# ========== 图像相关 ==========
+# ========== Image Related ==========
 
 @router.post("/projects/{project_id}/images/upload")
 async def upload_image(
@@ -236,75 +236,75 @@ async def upload_image(
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
-    """上传图像文件到项目"""
-    # 校验项目是否存在
+    """Upload image file to project"""
+    # Verify project exists
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    # 校验文件类型
+    # Verify file type
     allowed_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp'}
     file_ext = Path(file.filename).suffix.lower()
     if file_ext not in allowed_extensions:
         raise HTTPException(
             status_code=400,
-            detail=f"不支持的文件格式: {file_ext}。支持的格式: {', '.join(allowed_extensions)}"
+            detail=f"Unsupported file format: {file_ext}. Supported formats: {', '.join(allowed_extensions)}"
         )
     
     try:
-        # 读取文件内容
+        # Read file content
         file_content = await file.read()
         
-        # 校验文件大小
+        # Verify file size
         size_mb = len(file_content) / (1024 * 1024)
         if size_mb > settings.MAX_IMAGE_SIZE_MB:
             raise HTTPException(
                 status_code=400,
-                detail=f"文件太大: {size_mb:.2f}MB (最大: {settings.MAX_IMAGE_SIZE_MB}MB)"
+                detail=f"File too large: {size_mb:.2f}MB (max: {settings.MAX_IMAGE_SIZE_MB}MB)"
             )
         
-        # 验证是否为有效图像并获取尺寸
+        # Verify if valid image and get dimensions
         try:
             img = PILImage.open(io.BytesIO(file_content))
             img_width, img_height = img.size
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"无效的图像文件: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Invalid image file: {str(e)}")
         
-        # 生成存储路径
+        # Generate storage path
         project_dir = settings.DATASETS_ROOT / project_id / "raw"
         project_dir.mkdir(parents=True, exist_ok=True)
         
-        # 处理文件名冲突和中文文件名
+        # Handle filename conflicts and Chinese filenames
         original_filename = file.filename or f"image_{uuid.uuid4().hex[:8]}{file_ext}"
-        # 处理中文文件名：使用UUID避免编码问题，但保留原始扩展名
+        # Handle Chinese filenames: use UUID to avoid encoding issues, but keep original extension
         filename_stem = f"img_{uuid.uuid4().hex[:8]}"
         filename = f"{filename_stem}{file_ext}"
         file_path = project_dir / filename
         
-        # 如果文件名冲突，添加时间戳
+        # If filename conflicts, add timestamp
         counter = 0
         while file_path.exists():
             counter += 1
             filename = f"{filename_stem}_{counter}{file_ext}"
             file_path = project_dir / filename
         
-        # 保存文件（如果图像格式需要转换，则在保存时转换）
+        # Save file (convert image format if needed when saving)
         if img.mode != 'RGB' and file_ext in ['.jpg', '.jpeg']:
-            # JPG格式需要RGB模式
+            # JPG format requires RGB mode
             img_rgb = img.convert('RGB')
             img_rgb.save(file_path, 'JPEG', quality=95)
         else:
-            # 其他格式直接保存原始内容
+            # Other formats save original content directly
             file_path.write_bytes(file_content)
         
-        # 生成相对路径（仅包含 raw/filename，不包含 project_id）
+        # Generate relative path (only includes raw/filename, not project_id)
         relative_path = f"raw/{filename}"
         
-        # 存入数据库（存储原始文件名和相对路径）
+        # Save to database (store original filename and relative path)
         db_image = Image(
             project_id=project_id,
-            filename=original_filename,  # 存储原始文件名
-            path=relative_path,  # 存储相对路径 raw/filename
+            filename=original_filename,  # Store original filename
+            path=relative_path,  # Store relative path raw/filename
             width=img_width,
             height=img_height,
             status="UNLABELED",
@@ -314,7 +314,7 @@ async def upload_image(
         db.commit()
         db.refresh(db_image)
         
-        # 通过 WebSocket 通知前端
+        # Notify frontend via WebSocket
         websocket_manager.broadcast_project_update(project_id, {
             "type": "new_image",
             "image_id": db_image.id,
@@ -331,19 +331,19 @@ async def upload_image(
             "width": img_width,
             "height": img_height,
             "status": db_image.status,
-            "message": "图像上传成功"
+            "message": "Image uploaded successfully"
         }
         
     except HTTPException:
         raise
     except Exception as e:
         print(f"[Upload] Error uploading image: {e}")
-        raise HTTPException(status_code=500, detail=f"上传失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
 @router.get("/projects/{project_id}/images")
 def list_images(project_id: str, db: Session = Depends(get_db)):
-    """列出项目所有图像"""
+    """List all images in project"""
     images = db.query(Image).filter(Image.project_id == project_id).order_by(Image.created_at.desc()).all()
     
     result = []
@@ -363,7 +363,7 @@ def list_images(project_id: str, db: Session = Depends(get_db)):
 
 @router.get("/projects/{project_id}/images/{image_id}")
 def get_image(project_id: str, image_id: int, db: Session = Depends(get_db)):
-    """获取图像详情（含标注）"""
+    """Get image details (including annotations)"""
     image = db.query(Image).filter(
         Image.id == image_id,
         Image.project_id == project_id
@@ -371,7 +371,7 @@ def get_image(project_id: str, image_id: int, db: Session = Depends(get_db)):
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
     
-    # 获取标注
+    # Get annotations
     annotations = db.query(Annotation).filter(Annotation.image_id == image_id).all()
     
     ann_list = []
@@ -399,7 +399,7 @@ def get_image(project_id: str, image_id: int, db: Session = Depends(get_db)):
 
 @router.delete("/projects/{project_id}/images/{image_id}")
 def delete_image(project_id: str, image_id: int, db: Session = Depends(get_db)):
-    """删除图像"""
+    """Delete image"""
     image = db.query(Image).filter(
         Image.id == image_id,
         Image.project_id == project_id
@@ -408,12 +408,12 @@ def delete_image(project_id: str, image_id: int, db: Session = Depends(get_db)):
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
     
-    # 先删除关联的标注数据，避免残留孤立记录
+    # Delete associated annotation data first to avoid orphaned records
     annotations = db.query(Annotation).filter(Annotation.image_id == image_id).all()
     for ann in annotations:
         db.delete(ann)
     
-    # 删除图像文件
+    # Delete image file
     image_path = settings.DATASETS_ROOT / project_id / image.path
     if image_path.exists():
         try:
@@ -421,13 +421,13 @@ def delete_image(project_id: str, image_id: int, db: Session = Depends(get_db)):
             print(f"[Delete] Deleted image file: {image_path}")
         except Exception as e:
             print(f"[Delete] Error deleting file {image_path}: {e}")
-            # 继续删除数据库记录，即使文件删除失败
+            # Continue deleting database record even if file deletion fails
     
-    # 删除数据库记录（级联删除标注）
+    # Delete database record (cascade delete annotations)
     db.delete(image)
     db.commit()
     
-    # 通过 WebSocket 通知前端
+    # Notify frontend via WebSocket
     websocket_manager.broadcast_project_update(project_id, {
         "type": "image_deleted",
         "image_id": image_id
@@ -436,11 +436,11 @@ def delete_image(project_id: str, image_id: int, db: Session = Depends(get_db)):
     return {"message": "Image deleted"}
 
 
-# ========== 标注相关 ==========
+# ========== Annotation Related ==========
 
 @router.post("/images/{image_id}/annotations")
 def create_annotation(image_id: int, annotation: AnnotationCreate, db: Session = Depends(get_db)):
-    """创建标注"""
+    """Create annotation"""
     image = db.query(Image).filter(Image.id == image_id).first()
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
@@ -456,14 +456,14 @@ def create_annotation(image_id: int, annotation: AnnotationCreate, db: Session =
     
     db.add(db_annotation)
     
-    # 更新图像状态
+    # Update image status
     was_unlabeled = image.status == "UNLABELED"
     image.status = "LABELED"
     
     db.commit()
     db.refresh(db_annotation)
     
-    # 如果状态从 UNLABELED 变为 LABELED，通知前端更新图像列表
+    # If status changed from UNLABELED to LABELED, notify frontend to update image list
     if was_unlabeled:
         websocket_manager.broadcast_project_update(project_id, {
             "type": "image_status_updated",
@@ -476,7 +476,7 @@ def create_annotation(image_id: int, annotation: AnnotationCreate, db: Session =
 
 @router.put("/annotations/{annotation_id}")
 def update_annotation(annotation_id: int, annotation: AnnotationUpdate, db: Session = Depends(get_db)):
-    """更新标注"""
+    """Update annotation"""
     db_ann = db.query(Annotation).filter(Annotation.id == annotation_id).first()
     if not db_ann:
         raise HTTPException(status_code=404, detail="Annotation not found")
@@ -490,7 +490,7 @@ def update_annotation(annotation_id: int, annotation: AnnotationUpdate, db: Sess
     if annotation.class_id is not None:
         db_ann.class_id = annotation.class_id
     
-    # 确保图像状态为 LABELED（如果之前不是）
+    # Ensure image status is LABELED (if it wasn't before)
     if image and image.status != "LABELED":
         image.status = "LABELED"
         if project_id:
@@ -508,7 +508,7 @@ def update_annotation(annotation_id: int, annotation: AnnotationUpdate, db: Sess
 
 @router.delete("/annotations/{annotation_id}")
 def delete_annotation(annotation_id: int, db: Session = Depends(get_db)):
-    """删除标注"""
+    """Delete annotation"""
     db_ann = db.query(Annotation).filter(Annotation.id == annotation_id).first()
     if not db_ann:
         raise HTTPException(status_code=404, detail="Annotation not found")
@@ -519,7 +519,7 @@ def delete_annotation(annotation_id: int, db: Session = Depends(get_db)):
     
     db.delete(db_ann)
     
-    # 检查是否还有标注，如果没有则更新状态
+    # Check if there are remaining annotations, update status if none
     remaining = db.query(Annotation).filter(Annotation.image_id == image_id).count()
     status_changed = False
     if remaining == 0:
@@ -529,7 +529,7 @@ def delete_annotation(annotation_id: int, db: Session = Depends(get_db)):
     
     db.commit()
     
-    # 通过 WebSocket 通知前端
+    # Notify frontend via WebSocket
     if project_id:
         from backend.services.websocket_manager import websocket_manager
         websocket_manager.broadcast_project_update(project_id, {
@@ -538,7 +538,7 @@ def delete_annotation(annotation_id: int, db: Session = Depends(get_db)):
             "image_id": image_id
         })
         
-        # 如果状态改变，也通知图像状态更新
+        # If status changed, also notify image status update
         if status_changed:
             websocket_manager.broadcast_project_update(project_id, {
                 "type": "image_status_updated",
@@ -549,7 +549,7 @@ def delete_annotation(annotation_id: int, db: Session = Depends(get_db)):
     return {"message": "Annotation deleted"}
 
 
-# ========== 数据集导入相关 ==========
+# ========== Dataset Import Related ==========
 
 @router.post("/projects/{project_id}/dataset/import")
 async def import_dataset(
@@ -842,38 +842,38 @@ async def import_dataset(
 
 
 # ========== WebSocket ==========
-# 注意：WebSocket 路由不在 router 中注册，需要在 main.py 中单独注册
-# 这样路径就不会有 /api 前缀
+# Note: WebSocket routes are not registered in router, need to register separately in main.py
+# This way the path won't have /api prefix
 
 
-# ========== 图像文件服务 ==========
+# ========== Image File Service ==========
 
 @router.get("/images/{project_id}/{image_path:path}")
 def get_image_file(project_id: str, image_path: str):
-    """获取图像文件"""
+    """Retrieve image file"""
     import os
     from pathlib import Path
     
     print(f"[Image] Request received: project_id={project_id}, image_path={image_path}")
     
-    # image_path 应该是 raw/filename 格式
-    # 移除可能的 project_id 前缀（兼容旧数据）
+    # image_path should be in raw/filename format
+    # Remove possible project_id prefix (for compatibility with old data)
     if image_path.startswith(f"{project_id}/"):
         image_path = image_path[len(project_id) + 1:]
     
-    # 确保路径以 raw/ 开头
+    # Ensure path starts with raw/
     if not image_path.startswith("raw/"):
-        # 如果路径不包含 raw/，可能是旧格式，尝试添加
+        # If path doesn't contain raw/, might be old format, try to add
         image_path = f"raw/{image_path}"
     
-    # 构建文件路径
+    # Build file path
     file_path = settings.DATASETS_ROOT / project_id / image_path
     
-    # 规范化路径，处理可能的路径遍历攻击
+    # Normalize path, handle potential path traversal attacks
     try:
         resolved_path = file_path.resolve()
         datasets_root = settings.DATASETS_ROOT.resolve()
-        # 确保解析后的路径在数据集根目录下
+        # Ensure resolved path is within datasets root directory
         resolved_path.relative_to(datasets_root)
     except ValueError:
         print(f"[Image] Security check failed: {resolved_path} not under {datasets_root}")
@@ -884,7 +884,7 @@ def get_image_file(project_id: str, image_path: str):
     print(f"[Image] DATASETS_ROOT: {datasets_root}")
     
     if not resolved_path.exists():
-        # 尝试列出目录内容以便调试
+        # Try listing directory contents for debugging
         project_dir = settings.DATASETS_ROOT / project_id / "raw"
         if project_dir.exists():
             files = list(project_dir.glob("*"))
@@ -893,27 +893,27 @@ def get_image_file(project_id: str, image_path: str):
             print(f"[Image] Raw directory does not exist: {project_dir}")
         raise HTTPException(status_code=404, detail=f"Image not found: {image_path} (resolved: {resolved_path})")
     
-    # 确保是文件而不是目录
+    # Ensure it's a file, not a directory
     if not resolved_path.is_file():
         raise HTTPException(status_code=404, detail="Path is not a file")
     
     return FileResponse(str(resolved_path))
 
 
-# ========== YOLO 导出 ==========
+# ========== YOLO Export ==========
 
 @router.post("/projects/{project_id}/export/yolo")
 def export_yolo(project_id: str, db: Session = Depends(get_db)):
-    """导出项目为 YOLO 格式"""
+    """Export project as YOLO format"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    # 获取所有图像和标注
+    # Get all images and annotations
     images = db.query(Image).filter(Image.project_id == project_id).all()
     classes = db.query(Class).filter(Class.project_id == project_id).all()
     
-    # 构建导出数据
+    # Build export data
     project_data = {
         "id": project_id,
         "name": project.name,
@@ -943,7 +943,7 @@ def export_yolo(project_id: str, db: Session = Depends(get_db)):
             "annotations": ann_list
         })
     
-    # 导出
+    # Export
     output_dir = settings.DATASETS_ROOT / project_id / "yolo_export"
     result = YOLOExporter.export_project(project_data, output_dir, settings.DATASETS_ROOT)
     
@@ -957,7 +957,7 @@ def export_yolo(project_id: str, db: Session = Depends(get_db)):
 
 @router.get("/projects/{project_id}/export/yolo/download")
 def download_yolo_export(project_id: str, db: Session = Depends(get_db)):
-    """下载 YOLO 格式数据集 zip 包"""
+    """Download YOLO format dataset zip package"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -966,7 +966,7 @@ def download_yolo_export(project_id: str, db: Session = Depends(get_db)):
     if not output_dir.exists():
         raise HTTPException(status_code=404, detail="YOLO export not found. Please export first.")
     
-    # 创建临时 zip 文件
+    # Create temporary zip file
     zip_path = settings.DATASETS_ROOT / project_id / f"{project.name}_yolo_dataset.zip"
     
     def generate_zip():
@@ -979,7 +979,7 @@ def download_yolo_export(project_id: str, db: Session = Depends(get_db)):
         with open(zip_path, 'rb') as f:
             yield from f
         
-        # 清理临时文件
+        # Clean up temporary files
         if zip_path.exists():
             zip_path.unlink()
     
@@ -994,7 +994,7 @@ def download_yolo_export(project_id: str, db: Session = Depends(get_db)):
 
 @router.get("/projects/{project_id}/export/zip")
 def export_dataset_zip(project_id: str, db: Session = Depends(get_db)):
-    """导出完整数据集 zip 包（包含所有图像和标注）"""
+    """Export complete dataset zip package (contains all images and annotations)"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1005,25 +1005,25 @@ def export_dataset_zip(project_id: str, db: Session = Depends(get_db)):
     if not images:
         raise HTTPException(status_code=400, detail="No images in project")
     
-    # 创建临时 zip 文件
+    # Create temporary zip file
     zip_path = settings.DATASETS_ROOT / project_id / f"{project.name}_dataset.zip"
     
     def generate_zip():
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            # 添加类别信息
+            # Add class information
             classes_info = {
                 "classes": [{"id": c.id, "name": c.name, "color": c.color} for c in classes]
             }
             zipf.writestr("classes.json", json.dumps(classes_info, ensure_ascii=False, indent=2))
             
-            # 添加图像和标注
+            # Add images and annotations
             for img in images:
-                # 添加图像文件
+                # Add image file
                 img_path = settings.DATASETS_ROOT / project_id / img.path
                 if img_path.exists():
                     zipf.write(img_path, f"images/{img.filename}")
                 
-                # 获取标注
+                # Get annotations
                 annotations = db.query(Annotation).filter(Annotation.image_id == img.id).all()
                 if annotations:
                     ann_list = []
@@ -1038,14 +1038,14 @@ def export_dataset_zip(project_id: str, db: Session = Depends(get_db)):
                             "class_name": class_obj.name if class_obj else None
                         })
                     
-                    # 保存标注为 JSON
+                    # Save annotations as JSON
                     ann_filename = Path(img.filename).stem + ".json"
                     zipf.writestr(f"annotations/{ann_filename}", json.dumps(ann_list, ensure_ascii=False, indent=2))
         
         with open(zip_path, 'rb') as f:
             yield from f
         
-        # 清理临时文件
+        # Clean up temporary files
         if zip_path.exists():
             zip_path.unlink()
     
@@ -1058,18 +1058,18 @@ def export_dataset_zip(project_id: str, db: Session = Depends(get_db)):
     )
 
 
-# ========== MQTT 服务管理 ==========
+# ========== MQTT Service Management ==========
 
-# ========== 模型训练 ==========
+# ========== Model Training ==========
 
 @router.post("/projects/{project_id}/train")
 def start_training(project_id: str, request: TrainingRequest, db: Session = Depends(get_db)):
-    """启动模型训练：自动按当前项目数据导出最新 YOLO 数据集再训练"""
+    """Start model training: automatically export latest YOLO dataset from current project data and train"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    # 获取类别
+    # Get classes
     classes = db.query(Class).filter(Class.project_id == project_id).all()
     if len(classes) == 0:
         raise HTTPException(
@@ -1077,7 +1077,7 @@ def start_training(project_id: str, request: TrainingRequest, db: Session = Depe
             detail="No classes found. Please create at least one class."
         )
     
-    # 准备导出数据（使用当前数据库中的最新数据）
+    # Prepare export data (use latest data from current database)
     images = db.query(Image).filter(Image.project_id == project_id).all()
     project_data = {
         "id": project_id,
@@ -1105,19 +1105,19 @@ def start_training(project_id: str, request: TrainingRequest, db: Session = Depe
             "annotations": ann_list
         })
     
-    # 导出 YOLO 数据集（覆盖旧的 yolo_export）
+    # Export YOLO dataset (overwrite old yolo_export)
     yolo_export_dir = settings.DATASETS_ROOT / project_id / "yolo_export"
     try:
         YOLOExporter.export_project(project_data, yolo_export_dir, settings.DATASETS_ROOT)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"自动导出数据集失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Auto export dataset failed: {str(e)}")
     
-    # data.yaml 路径
+    # data.yaml path
     data_yaml = yolo_export_dir / "data.yaml"
     if not data_yaml.exists():
-        raise HTTPException(status_code=500, detail="自动导出后缺少 data.yaml")
+        raise HTTPException(status_code=500, detail="Missing data.yaml after auto export")
     
-    # 启动训练，使用最新导出的数据集
+    # Start training using latest exported dataset
     try:
         training_info = training_service.start_training(
             project_id=project_id,
@@ -1159,13 +1159,13 @@ def start_training(project_id: str, request: TrainingRequest, db: Session = Depe
 
 @router.get("/projects/{project_id}/train/records")
 def get_training_records(project_id: str, db: Session = Depends(get_db)):
-    """获取项目的所有训练记录"""
+    """Get all training records for project"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
     records = training_service.get_training_records(project_id)
-    # 只返回基本信息，不包含完整日志
+    # Only return basic information, not full logs
     return [{
         'training_id': r.get('training_id'),
         'status': r.get('status'),
@@ -1185,7 +1185,7 @@ def get_training_records(project_id: str, db: Session = Depends(get_db)):
 
 @router.get("/projects/{project_id}/train/status")
 def get_training_status(project_id: str, training_id: Optional[str] = Query(None), db: Session = Depends(get_db)):
-    """获取训练状态"""
+    """Get training status"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1202,7 +1202,7 @@ def get_training_status(project_id: str, training_id: Optional[str] = Query(None
 
 @router.get("/projects/{project_id}/train/{training_id}/logs")
 def get_training_logs(project_id: str, training_id: str, db: Session = Depends(get_db)):
-    """获取训练日志"""
+    """Get training logs"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1218,7 +1218,7 @@ def get_training_logs(project_id: str, training_id: str, db: Session = Depends(g
 
 @router.get("/projects/{project_id}/train/{training_id}/export")
 def export_trained_model(project_id: str, training_id: str, db: Session = Depends(get_db)):
-    """导出训练好的模型"""
+    """Export trained model"""
     
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
@@ -1249,11 +1249,11 @@ def export_tflite_model(
     imgsz: int = Query(256, ge=32, le=2048),
     int8: bool = Query(True),
     fraction: float = Query(0.2, ge=0.0, le=1.0),
-    ne301: bool = Query(True, description="是否生成 NE301 设备量化模型（默认勾选）"),
+    ne301: bool = Query(True, description="Whether to generate NE301 device quantization model (default checked)"),
     db: Session = Depends(get_db)
 ):
     """
-    导出 TFLite 量化模型（默认 int8，imgsz=256，fraction=0.2）
+    Export TFLite quantized model (default int8, imgsz=256, fraction=0.2)
     """
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
@@ -1270,7 +1270,7 @@ def export_tflite_model(
     if not model_path or not Path(model_path).exists():
         raise HTTPException(status_code=404, detail="Model file not found")
 
-    # data.yaml 路径（用于校准/类别信息）
+    # data.yaml path (for calibration/class information)
     data_yaml = settings.DATASETS_ROOT / project_id / "yolo_export" / "data.yaml"
     if not data_yaml.exists():
         raise HTTPException(status_code=400, detail="data.yaml not found, please ensure dataset export exists.")
@@ -1285,33 +1285,33 @@ def export_tflite_model(
             data=str(data_yaml),
             fraction=fraction
         )
-        # export_path 可能是 Path 或 str
+        # export_path might be Path or str
         export_path = Path(export_path)
 
-        # NE301 相关变量（确保在正确的作用域中定义）
+        # NE301 related variables (ensure defined in correct scope)
         ne301_path: Optional[str] = None
         ne301_model_bin_path: Optional[str] = None
         ne301_json_path: Optional[str] = None
         
         if ne301:
-            # 追加 NE301 量化步骤：生成配置并调用 stm32ai 脚本
+            # Add NE301 quantization step: generate config and call stm32ai script
             quant_dir = Path(__file__).resolve().parent.parent / "quantization"
             script_path = quant_dir / "tflite_quant.py"
             if not script_path.exists():
-                raise HTTPException(status_code=500, detail="缺少 NE301 量化脚本，请检查 backend/quantization/tflite_quant.py")
+                raise HTTPException(status_code=500, detail="Missing NE301 quantization script, please check backend/quantization/tflite_quant.py")
 
-            # SavedModel 目录：Ultralytics tflite 导出后返回的路径在 best_saved_model 下
+            # SavedModel directory: path returned after Ultralytics tflite export is under best_saved_model
             saved_model_dir = export_path.parent  # e.g. .../weights/best_saved_model
             print(f"[NE301] export_path={export_path} saved_model_dir={saved_model_dir}")
             if not saved_model_dir.exists():
-                raise HTTPException(status_code=500, detail="未找到 SavedModel 目录，无法执行 NE301 量化")
+                raise HTTPException(status_code=500, detail="SavedModel directory not found, cannot perform NE301 quantization")
 
-            # 校准集默认使用导出的 YOLO 数据集 val（不存在则退回 train）
+            # Calibration set defaults to exported YOLO dataset val (fallback to train if not exists)
             calib_dir = settings.DATASETS_ROOT / project_id / "yolo_export" / "images" / "val"
             if not calib_dir.exists():
                 calib_dir = settings.DATASETS_ROOT / project_id / "yolo_export" / "images" / "train"
             if not calib_dir.exists():
-                raise HTTPException(status_code=400, detail="校准集不存在，无法执行 NE301 量化，请先导出数据集")
+                raise HTTPException(status_code=400, detail="Calibration set does not exist, cannot perform NE301 quantization, please export dataset first")
 
             quant_workdir = saved_model_dir.parent / "ne301_quant"
             quant_workdir.mkdir(parents=True, exist_ok=True)
@@ -1338,7 +1338,7 @@ def export_tflite_model(
             with open(config_path, "w", encoding="utf-8") as f:
                 yaml.safe_dump(cfg, f, allow_unicode=True)
 
-            # hydra config_name 传入文件名去掉扩展（例如 user_config_quant）
+            # hydra config_name pass filename without extension (e.g., user_config_quant)
             cmd = [
                 sys.executable,
                 str(script_path),
@@ -1369,7 +1369,7 @@ def export_tflite_model(
                 )
                 raise HTTPException(
                     status_code=500,
-                    detail=f"NE301 量化失败: {proc.stderr or proc.stdout}",
+                    detail=f"NE301 quantization failed: {proc.stderr or proc.stdout}",
                 )
 
             export_dir = Path(cfg["quantization"]["export_path"])
@@ -1382,32 +1382,32 @@ def export_tflite_model(
                 logger.error("[NE301] No TFLite file found in quantized_models directory: %s", export_dir)
                 raise HTTPException(
                     status_code=500,
-                    detail="NE301 量化完成但未找到生成的 tflite 文件",
+                    detail="NE301 quantization completed but generated tflite file not found",
                 )
             ne301_path = str(tflites[0])
             print(f"[NE301] quantized tflite ready: {ne301_path}")
 
-            # 验证文件是否真的存在
+            # Verify file actually exists
             if not Path(ne301_path).exists():
                 logger.error(f"[NE301] TFLite file does not exist: {ne301_path}")
-                raise HTTPException(status_code=500, detail=f"NE301 TFLite 文件生成失败: {ne301_path}")
+                raise HTTPException(status_code=500, detail=f"NE301 TFLite file generation failed: {ne301_path}")
 
-        # 如果需要生成 NE301 JSON 配置和编译，先确保 JSON 文件保存（即使编译失败也要保存）
+        # If need to generate NE301 JSON config and compile, ensure JSON file is saved first (even if compilation fails)
         if ne301 and ne301_path:
-            # 先保存 JSON 配置文件（这一步必须在 try-except 外面，确保即使后续步骤失败也能保存）
+            # Save JSON config file first (this step must be outside try-except to ensure it's saved even if subsequent steps fail)
             try:
                 from backend.utils.ne301_export import (
                     generate_ne301_json_config,
                     _convert_to_json_serializable
                 )
                 
-                # 读取 data.yaml 获取类别信息
+                # Read data.yaml to get class information
                 with open(data_yaml, "r", encoding="utf-8") as f:
                     data_info = yaml.safe_load(f)
                 
                 class_names = data_info.get("names", [])
                 if isinstance(class_names, dict):
-                    # 如果是字典格式 {0: "class1", 1: "class2"}, 转换为列表
+                    # If dict format {0: "class1", 1: "class2"}, convert to list
                     max_idx = max(class_names.keys())
                     names_list = [""] * (max_idx + 1)
                     for idx, name in class_names.items():
@@ -1416,71 +1416,71 @@ def export_tflite_model(
                 elif not isinstance(class_names, list):
                     class_names = []
                 
-                num_classes = len(class_names) if class_names else 80  # 默认 COCO 80 类
+                num_classes = len(class_names) if class_names else 80  # Default COCO 80 classes
                 
-                # 生成模型名称（不含扩展名）
+                # Generate model name (without extension)
                 tflite_file = Path(ne301_path)
-                model_base_name = tflite_file.stem  # 例如: best_ne301_quant_pc_ui_xxx
+                model_base_name = tflite_file.stem  # e.g., best_ne301_quant_pc_ui_xxx
                 
-                # 生成 JSON 配置（会尝试从 TFLite 模型提取真实的量化参数和输出尺寸）
+                # Generate JSON config (will try to extract real quantization parameters and output dimensions from TFLite model)
                 json_config = generate_ne301_json_config(
                     tflite_path=tflite_file,
                     model_name=model_base_name,
                     input_size=imgsz,
                     num_classes=num_classes,
                     class_names=class_names,
-                    output_scale=None,  # 从模型提取
-                    output_zero_point=None,  # 从模型提取
+                    output_scale=None,  # Extract from model
+                    output_zero_point=None,  # Extract from model
                     confidence_threshold=0.25,
                     iou_threshold=0.45,
-                    output_shape=None,  # 从模型提取
+                    output_shape=None,  # Extract from model
                 )
                 
-                # 确保 JSON 文件保存在与 TFLite 文件相同的目录（quantized_models），便于下载
-                json_output_dir = tflite_file.parent  # quantized_models 目录
-                json_output_dir.mkdir(parents=True, exist_ok=True)  # 确保目录存在
+                # Ensure JSON file is saved in same directory as TFLite file (quantized_models) for easy download
+                json_output_dir = tflite_file.parent  # quantized_models directory
+                json_output_dir.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
                 json_file_path = json_output_dir / f"{model_base_name}.json"
                 
-                # 保存 JSON 配置文件（确保所有值都是 JSON 可序列化的）
+                # Save JSON config file (ensure all values are JSON serializable)
                 json_config_clean = _convert_to_json_serializable(json_config)
                 with open(json_file_path, "w", encoding="utf-8") as f:
                     json.dump(json_config_clean, f, indent=2, ensure_ascii=False)
                 
-                # 验证文件是否真的保存成功
+                # Verify file was actually saved successfully
                 if not json_file_path.exists():
                     logger.error(f"[NE301] Failed to save JSON file: {json_file_path}")
-                    raise RuntimeError(f"JSON 配置文件保存失败: {json_file_path}")
+                    raise RuntimeError(f"JSON config file save failed: {json_file_path}")
                 
-                # 保存 JSON 路径（在外部作用域中，确保即使后续步骤失败也能返回）
+                # Save JSON path (in outer scope, ensure it's returned even if subsequent steps fail)
                 ne301_json_path = str(json_file_path)
                 logger.info(f"[NE301] ✓ JSON config saved to: {json_file_path}")
                 print(f"[NE301] ✓ JSON config saved to: {json_file_path}")
                 
-                # 保存 json_config 到外部作用域，供后续使用
+                # Save json_config to outer scope for subsequent use
                 json_config_saved = json_config
                 
             except Exception as e:
                 logger.error(f"[NE301] Failed to generate JSON config file: {e}", exc_info=True)
                 print(f"[NE301] Failed to generate JSON config file: {e}")
-                # JSON 生成失败不影响 TFLite 文件的返回
+                # JSON generation failure does not affect TFLite file return
                 json_config_saved = None
-                ne301_json_path = None  # 确保变量被定义，避免后续NameError
+                ne301_json_path = None  # Ensure variable is defined to avoid NameError
             
-            # 尝试编译 NE301 模型包（这一步失败不影响文件下载）
+            # Try to compile NE301 model package (this step failure does not affect file download)
             logger.info("[NE301] Starting NE301 model package compilation...")
             print("[NE301] Starting NE301 model package compilation...")
             try:
-                # 确保 json_config 可用（如果前面的生成失败，尝试从文件读取）
+                # Ensure json_config is available (if previous generation failed, try to read from file)
                 json_config_for_copy = json_config_saved if 'json_config_saved' in locals() and json_config_saved is not None else None
                 if json_config_for_copy is None:
-                    # 如果 json_config 不存在，尝试从已保存的 JSON 文件读取
+                    # If json_config doesn't exist, try to read from saved JSON file
                     if ne301_json_path and Path(ne301_json_path).exists():
                         with open(ne301_json_path, "r", encoding="utf-8") as f:
                             json_config_for_copy = json.load(f)
                             logger.info(f"[NE301] Reading JSON config from file: {ne301_json_path}")
                             print(f"[NE301] Reading JSON config from file: {ne301_json_path}")
                     else:
-                        # 如果 JSON 文件也不存在，跳过编译步骤
+                        # If JSON file also doesn't exist, skip compilation step
                         logger.warning("[NE301] JSON config not available, skipping compilation step")
                         print("[NE301] JSON config not available, skipping compilation step")
                         raise RuntimeError("JSON config not available, cannot continue compilation")
@@ -1490,13 +1490,13 @@ def export_tflite_model(
                     build_ne301_model
                 )
                 
-                # 获取 NE301 项目路径（优先使用已初始化的路径）
+                # Get NE301 project path (prefer using initialized path)
                 from backend.utils.ne301_init import get_ne301_project_path
                 try:
                     ne301_project_path = get_ne301_project_path()
                 except Exception as e:
                     logger.warning(f"[NE301] Failed to get NE301 project path: {e}")
-                    # 回退到环境变量或配置
+                    # Fallback to environment variable or config
                     ne301_project_path = settings.NE301_PROJECT_PATH or os.environ.get("NE301_PROJECT_PATH")
                     if ne301_project_path:
                         ne301_project_path = Path(ne301_project_path)
@@ -1521,12 +1521,12 @@ def export_tflite_model(
                     print(f"  cp {tflite_file} {ne301_project_path}/Model/weights/")
                     print(f"  cp {ne301_json_path} {ne301_project_path}/Model/weights/")
                     print(f"  cd {ne301_project_path} && make model")
-                    raise FileNotFoundError(f"NE301 项目目录不存在或不完整: {ne301_project_path}")
+                    raise FileNotFoundError(f"NE301 project directory does not exist or is incomplete: {ne301_project_path}")
                 else:
                     logger.info(f"[NE301] ✓ NE301 project path validation passed")
                     print(f"[NE301] ✓ NE301 project path validation passed")
                     
-                    # 复制模型和 JSON 到 NE301 项目
+                    # Copy model and JSON to NE301 project
                     logger.info(f"[NE301] Starting to copy model files to NE301 project...")
                     print(f"[NE301] Starting to copy model files to NE301 project...")
                     tflite_dest, json_dest = copy_model_to_ne301_project(
@@ -1538,7 +1538,7 @@ def export_tflite_model(
                     logger.info(f"[NE301] Model files copied to NE301 project: {tflite_dest}, {json_dest}")
                     print(f"[NE301] Model files copied to NE301 project: {tflite_dest}, {json_dest}")
                     
-                    # 使用 Docker 编译模型（从配置或环境变量）
+                    # Use Docker to compile model (from config or environment variable)
                     use_docker = settings.NE301_USE_DOCKER if hasattr(settings, 'NE301_USE_DOCKER') else (
                         os.environ.get("NE301_USE_DOCKER", "true").lower() == "true"
                     )
@@ -1564,8 +1564,8 @@ def export_tflite_model(
                         print("[NE301] ⚠️ Model build completed but no package file found")
                             
             except Exception as e:
-                # 编译失败不影响量化结果的返回
-                # 但已生成的文件（TFLite、JSON）仍然可以下载
+                # Compilation failure does not affect quantization result return
+                # But generated files (TFLite, JSON) are still available for download
                 logger.error(f"[NE301] Model package build failed: {e}", exc_info=True)
                 print(f"[NE301] ✗ Model package build failed: {type(e).__name__}: {e}")
                 print(f"[NE301] Note: TFLite and JSON files have been generated and are available for download")
@@ -1588,9 +1588,9 @@ def export_tflite_model(
             "ne301": ne301,
         }
         
-        # 添加 NE301 相关路径（即使编译失败，也要返回已生成的文件）
+        # Add NE301 related paths (even if compilation fails, return generated files)
         if ne301 and ne301_path:
-            # 验证并添加 TFLite 文件路径
+            # Verify and add TFLite file path
             tflite_path_obj = Path(ne301_path)
             if tflite_path_obj.exists():
                 result["ne301_tflite"] = ne301_path
@@ -1598,9 +1598,9 @@ def export_tflite_model(
                 logger.info(f"[NE301] ✓ TFLite file generated and available for download: {ne301_path} (size: {file_size} bytes)")
             else:
                 logger.error(f"[NE301] ✗ TFLite file does not exist: {ne301_path}")
-                # 即使文件不存在也返回路径，让前端知道应该在哪里查找
+                # Return path even if file doesn't exist, let frontend know where to look
             
-            # 验证并添加 JSON 配置文件路径（即使编译失败也应返回）
+            # Verify and add JSON config file path (should return even if compilation fails)
             if ne301_json_path:
                 json_path_obj = Path(ne301_json_path)
                 if json_path_obj.exists():
@@ -1609,9 +1609,9 @@ def export_tflite_model(
                     logger.info(f"[NE301] ✓ JSON config file generated and available for download: {ne301_json_path} (size: {file_size} bytes)")
                 else:
                     logger.error(f"[NE301] ✗ JSON config file does not exist: {ne301_json_path}")
-                    # 即使文件不存在也返回路径，让前端知道应该在哪里查找
+                    # Return path even if file doesn't exist, let frontend know where to look
             
-            # 验证并添加编译后的模型包路径（仅当编译成功时）
+            # Verify and add compiled model package path (only when compilation succeeds)
             if ne301_model_bin_path:
                 bin_path_obj = Path(ne301_model_bin_path)
                 if bin_path_obj.exists():
@@ -1621,7 +1621,7 @@ def export_tflite_model(
                 else:
                     logger.warning(f"[NE301] ⚠️ Model package does not exist (compilation may have failed): {ne301_model_bin_path}")
         
-        # 验证原始 TFLite 文件
+        # Verify original TFLite file
         export_path_obj = Path(export_path)
         if export_path_obj.exists():
             file_size = export_path_obj.stat().st_size
@@ -1633,31 +1633,31 @@ def export_tflite_model(
     except ImportError as e:
         raise HTTPException(status_code=500, detail=f"Ultralytics or TensorFlow not installed: {str(e)}")
     except ConnectionError as e:
-        # 网络下载失败（通常是 ultralytics 尝试下载校准数据文件时失败）
+        # Network download failure (usually when ultralytics tries to download calibration data file)
         error_msg = str(e)
         import traceback
         tb = traceback.format_exc()
         logger.error("[Export] Network download failed during TFLite export: %s", tb)
         print(f"[Export] Network download failed: {tb}")
         
-        # 检查是否是下载校准数据的问题
+        # Check if it's a calibration data download issue
         if "calibration_image_sample_data" in error_msg or "Download failure" in error_msg:
             detail_msg = (
-                "模型量化导出失败：无法从 GitHub 下载校准示例数据。\n\n"
-                "可能的原因：\n"
-                "1. 网络连接问题（SSL/TLS 证书验证失败）\n"
-                "2. GitHub 访问受限\n"
-                "3. 防火墙或代理设置问题\n\n"
-                "解决方案：\n"
-                "1. 检查网络连接和防火墙设置\n"
-                "2. 如果使用代理，请配置代理环境变量（HTTP_PROXY, HTTPS_PROXY）\n"
-                "3. 检查系统 SSL 证书是否最新\n"
-                "4. 尝试在服务器上手动测试访问 GitHub：curl -I https://github.com\n"
-                "5. 如果问题持续，可以尝试在 Docker 容器外运行导出操作\n\n"
-                f"详细错误：{error_msg}"
+                "Model quantization export failed: Unable to download calibration sample data from GitHub.\n\n"
+                "Possible causes:\n"
+                "1. Network connection issues (SSL/TLS certificate verification failed)\n"
+                "2. GitHub access restricted\n"
+                "3. Firewall or proxy settings issues\n\n"
+                "Solutions:\n"
+                "1. Check network connection and firewall settings\n"
+                "2. If using proxy, configure proxy environment variables (HTTP_PROXY, HTTPS_PROXY)\n"
+                "3. Check if system SSL certificates are up to date\n"
+                "4. Try manually testing GitHub access on server: curl -I https://github.com\n"
+                "5. If problem persists, try running export operation outside Docker container\n\n"
+                f"Detailed error: {error_msg}"
             )
         else:
-            detail_msg = f"网络连接错误：{error_msg}"
+            detail_msg = f"Network connection error: {error_msg}"
         
         raise HTTPException(status_code=500, detail=detail_msg)
     except Exception as e:
@@ -1667,17 +1667,17 @@ def export_tflite_model(
             logger.error("[Export] TFLite export failed: %s", tb)
             print(f"[Export] TFLite export failed: {tb}")
             
-            # 检查错误信息中是否包含下载相关的关键词
+            # Check if error message contains download-related keywords
             error_msg = str(e)
             if "Download failure" in error_msg or "curl return value" in error_msg.lower() or "ConnectionError" in str(type(e).__name__):
                 detail_msg = (
-                    "模型量化导出失败：网络下载错误。\n\n"
-                    "可能的原因：\n"
-                    "1. 网络连接问题\n"
-                    "2. SSL/TLS 证书验证失败\n"
-                    "3. GitHub 访问受限\n\n"
-                    "请检查网络连接或联系管理员。\n\n"
-                    f"详细错误：{error_msg}"
+                    "Model quantization export failed: Network download error.\n\n"
+                    "Possible causes:\n"
+                    "1. Network connection issues\n"
+                    "2. SSL/TLS certificate verification failed\n"
+                    "3. GitHub access restricted\n\n"
+                    "Please check network connection or contact administrator.\n\n"
+                    f"Detailed error: {error_msg}"
                 )
                 raise HTTPException(status_code=500, detail=detail_msg)
         except HTTPException:
@@ -1690,38 +1690,38 @@ def export_tflite_model(
 def download_tflite_export(
     project_id: str,
     training_id: str,
-    file_type: str = Query(..., description="文件类型: tflite, ne301_tflite, ne301_json, ne301_model_bin"),
+    file_type: str = Query(..., description="File type: tflite, ne301_tflite, ne301_json, ne301_model_bin"),
     db: Session = Depends(get_db)
 ):
     """
-    下载模型量化导出的文件
+    Download model quantization export files
     
     Args:
-        project_id: 项目ID
-        training_id: 训练ID
-        file_type: 文件类型 (tflite, ne301_tflite, ne301_json, ne301_model_bin)
+        project_id: Project ID
+        training_id: Training ID
+        file_type: File type (tflite, ne301_tflite, ne301_json, ne301_model_bin)
     """
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    # 构建可能的文件路径
-    # 注意：训练目录可能是 train_{training_id} 或 train_{project_id}（如果 training_id 包含时间戳）
-    # 尝试多个可能的路径
+    # Build possible file paths
+    # Note: Training directory may be train_{training_id} or train_{project_id} (if training_id contains timestamp)
+    # Try multiple possible paths
     possible_base_dirs = [
         settings.DATASETS_ROOT / project_id / f"train_{training_id}",
-        settings.DATASETS_ROOT / project_id / f"train_{project_id}",  # 回退到 project_id
+        settings.DATASETS_ROOT / project_id / f"train_{project_id}",  # Fallback to project_id
     ]
     
-    # 如果 training_id 包含时间戳（格式：xxx_yyyymmdd_hhmmss），也尝试去掉时间戳的部分
+    # If training_id contains timestamp (format: xxx_yyyymmdd_hhmmss), also try removing timestamp part
     if "_" in training_id:
-        parts = training_id.rsplit("_", 2)  # 最多分成3部分，支持 xxx_yyyymmdd_hhmmss
+        parts = training_id.rsplit("_", 2)  # Split into at most 3 parts, support xxx_yyyymmdd_hhmmss
         if len(parts) >= 2:
-            # 尝试去掉最后的时间戳部分
+            # Try removing last timestamp part
             base_id = "_".join(parts[:-2]) if len(parts) > 2 else parts[0]
             possible_base_dirs.insert(1, settings.DATASETS_ROOT / project_id / f"train_{base_id}")
     
-    # 查找实际存在的训练目录
+    # Find actual existing training directory
     base_dir = None
     for possible_dir in possible_base_dirs:
         if possible_dir.exists() and (possible_dir / "weights").exists():
@@ -1730,7 +1730,7 @@ def download_tflite_export(
             break
     
     if not base_dir:
-        # 如果都找不到，使用第一个作为默认值（会在后续检查中报错）
+        # If all not found, use first as default (will error in subsequent checks)
         base_dir = possible_base_dirs[0]
         logger.warning(f"[Download] Training directory not found, using default path: {base_dir} (may not exist)")
         logger.info(f"[Download] Tried paths: {[str(d) for d in possible_base_dirs]}")
@@ -1743,11 +1743,11 @@ def download_tflite_export(
     filename = None
     
     if file_type == "tflite":
-        # 查找最新的 TFLite 文件（Ultralytics 导出的原始 TFLite）
+        # Find latest TFLite file (original TFLite exported by Ultralytics)
         tflite_files = list(weights_dir.glob("*.tflite"))
         logger.info(f"[Download] Found {len(tflite_files)} TFLite files in {weights_dir}")
         if not tflite_files:
-            # 也检查 best_saved_model 目录
+            # Also check best_saved_model directory
             saved_model_dir = weights_dir / "best_saved_model"
             if saved_model_dir.exists():
                 tflite_files = list(saved_model_dir.glob("*.tflite"))
@@ -1758,7 +1758,7 @@ def download_tflite_export(
         filename = file_path.name
         logger.info(f"[Download] Selected file: {file_path}")
     elif file_type == "ne301_tflite":
-        # NE301 量化后的 TFLite 文件
+        # NE301 quantized TFLite file
         ne301_dir = weights_dir / "ne301_quant" / "quantized_models"
         logger.info(f"[Download] Searching for NE301 TFLite file, directory: {ne301_dir}")
         if not ne301_dir.exists():
@@ -1772,7 +1772,7 @@ def download_tflite_export(
         filename = file_path.name
         logger.info(f"[Download] Selected file: {file_path}")
     elif file_type == "ne301_json":
-        # NE301 JSON 配置文件
+        # NE301 JSON configuration file
         ne301_dir = weights_dir / "ne301_quant" / "quantized_models"
         logger.info(f"[Download] Searching for NE301 JSON file, directory: {ne301_dir}")
         if not ne301_dir.exists():
@@ -1786,7 +1786,7 @@ def download_tflite_export(
         filename = file_path.name
         logger.info(f"[Download] Selected file: {file_path}")
     elif file_type == "ne301_model_bin":
-        # NE301 编译后的设备可更新包（优先查找打包后的 _pkg.bin 文件）
+        # NE301 compiled device update package (prefer finding packaged _pkg.bin files)
         from backend.utils.ne301_init import get_ne301_project_path
         try:
             ne301_project_path = get_ne301_project_path()
@@ -1795,20 +1795,20 @@ def download_tflite_export(
         
         logger.info(f"[Download] Searching for NE301 model package, project path: {ne301_project_path}")
         
-        # 优先查找打包后的设备可更新包（格式：*_v*_pkg.bin）
+        # Prefer finding packaged device update package (format: *_v*_pkg.bin)
         build_dir = ne301_project_path / "build"
         model_bin_path = None
         
         if build_dir.exists():
-            # 查找所有 _pkg.bin 文件（设备可更新的包）
+            # Find all _pkg.bin files (device-updatable packages)
             pkg_files = list(build_dir.glob("*_pkg.bin"))
             if pkg_files:
-                # 按修改时间排序，选择最新的
+                # Sort by modification time, select newest
                 pkg_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
                 model_bin_path = pkg_files[0]
                 logger.info(f"[Download] Found device-updatable package: {model_bin_path}")
         
-        # 如果没有找到打包文件，尝试查找原始的 .bin 文件
+        # If packaged file not found, try to find original .bin file
         if not model_bin_path:
             possible_paths = [
                 ne301_project_path / "build" / "ne301_Model.bin",
@@ -1832,19 +1832,19 @@ def download_tflite_export(
     else:
         raise HTTPException(status_code=400, detail=f"Invalid file_type: {file_type}. Must be one of: tflite, ne301_tflite, ne301_json, ne301_model_bin")
     
-    # 最终验证文件是否存在
+    # Final verification that file exists
     if not file_path or not file_path.exists():
         logger.error(f"[Download] ✗ File does not exist: {file_path} (file_type: {file_type})")
         raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
     
-    # 验证文件大小（文件不应该为空）
+    # Verify file size (file should not be empty)
     file_size = file_path.stat().st_size
     if file_size == 0:
         logger.warning(f"[Download] ⚠️ File size is 0: {file_path}")
     
     logger.info(f"[Download] ✓ File validation passed, ready for download: {file_path} (size: {file_size} bytes)")
     
-    # 确定媒体类型
+    # Determine media type
     media_type = 'application/octet-stream'
     if file_type.endswith('json'):
         media_type = 'application/json'
@@ -1857,7 +1857,7 @@ def download_tflite_export(
 
 @router.post("/projects/{project_id}/train/stop")
 def stop_training(project_id: str, training_id: Optional[str] = Query(None), db: Session = Depends(get_db)):
-    """停止训练（可选传入 training_id；默认停当前活动训练）"""
+    """Stop training (optionally pass training_id; defaults to stopping current active training)"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1877,7 +1877,7 @@ async def test_model(
     iou: float = Query(0.45, ge=0.0, le=1.0),
     db: Session = Depends(get_db)
 ):
-    """使用训练好的模型测试图像"""
+    """Test image using trained model"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1896,14 +1896,14 @@ async def test_model(
     try:
         from ultralytics import YOLO
         
-        # 读取上传的图像
+        # Read uploaded image
         image_bytes = await file.read()
-        image = PILImage.open(io.BytesIO(image_bytes)).convert("RGB")  # 确保RGB，避免透明/灰度导致检测异常
+        image = PILImage.open(io.BytesIO(image_bytes)).convert("RGB")  # Ensure RGB to avoid detection issues with transparency/grayscale
         
-        # 加载模型
+        # Load model
         model = YOLO(model_path)
         
-        # 进行推理
+        # Perform inference
         results = model.predict(
             source=image,
             conf=conf,
@@ -1912,17 +1912,17 @@ async def test_model(
             verbose=False
         )
         
-        # 解析结果
+        # Parse results
         result = results[0]
         detections = []
         
-        # 获取类别名称（从data.yaml或模型）
+        # Get class names (from data.yaml or model)
         names = result.names if hasattr(result, 'names') else {}
         
-        # 检查是否有检测框
+        # Check if there are detection boxes
         if hasattr(result, 'boxes') and result.boxes is not None:
             for box in result.boxes:
-                # 获取边界框坐标
+                # Get bounding box coordinates
                 xyxy = box.xyxy[0].cpu().numpy()
                 conf_score = float(box.conf[0].cpu().numpy())
                 cls_id = int(box.cls[0].cpu().numpy())
@@ -1940,7 +1940,7 @@ async def test_model(
                     }
                 })
         
-        # 调试日志：记录推理输出的概要（同时使用 print 和 logger，避免未配置日志级别时看不到）
+        # Debug log: record inference output summary (use both print and logger to avoid missing logs if log level not configured)
         has_boxes = hasattr(result, 'boxes') and result.boxes is not None
         boxes_count = len(result.boxes) if has_boxes else 0
         debug_line = (
@@ -1955,12 +1955,12 @@ async def test_model(
             pass
         print(debug_line)
         
-        # 将检测结果绘制到图像上（result.plot 返回 BGR，需要转为 RGB）
+        # Draw detection results on image (result.plot returns BGR, need to convert to RGB)
         annotated_bgr = result.plot()
         annotated_rgb = annotated_bgr[..., ::-1]  # BGR -> RGB
         annotated_pil = PILImage.fromarray(annotated_rgb)
         
-        # 转换为base64
+        # Convert to base64
         import base64
         img_buffer = io.BytesIO()
         annotated_pil.save(img_buffer, format='PNG')
@@ -1985,7 +1985,7 @@ async def test_model(
 
 @router.delete("/projects/{project_id}/train")
 def clear_training(project_id: str, training_id: Optional[str] = Query(None), db: Session = Depends(get_db)):
-    """清除训练记录"""
+    """Clear training record"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1994,14 +1994,14 @@ def clear_training(project_id: str, training_id: Optional[str] = Query(None), db
     return {"message": "Training record cleared"}
 
 
-# ========== MQTT 服务管理 ==========
+# ========== MQTT Service Management ==========
 @router.get("/mqtt/status")
 def get_mqtt_status(request: Request):
-    """获取 MQTT 服务状态"""
+    """Get MQTT service status"""
     from backend.config import get_mqtt_broker_host, get_local_ip
     
     if settings.MQTT_USE_BUILTIN_BROKER:
-        # 使用新的函数获取对外显示的主机 IP（而不是容器内部 IP）
+        # Use new function to get externally visible host IP (not container internal IP)
         broker = get_mqtt_broker_host(request)
         port = settings.MQTT_BUILTIN_PORT
         broker_type = "builtin"
@@ -2010,8 +2010,8 @@ def get_mqtt_status(request: Request):
         port = settings.MQTT_PORT
         broker_type = "external"
     
-    # 获取服务器 IP（用于显示在项目信息中）
-    # get_mqtt_broker_host 已经包含了从请求头获取的逻辑，这里直接使用
+    # Get server IP (for display in project information)
+    # get_mqtt_broker_host already contains logic to get from request headers, use it directly here
     server_ip = get_mqtt_broker_host(request)
     
     return {
@@ -2022,18 +2022,18 @@ def get_mqtt_status(request: Request):
         "broker": broker if settings.MQTT_ENABLED else None,
         "port": port if settings.MQTT_ENABLED else None,
         "topic": settings.MQTT_UPLOAD_TOPIC if settings.MQTT_ENABLED else None,
-        "server_ip": server_ip,  # 服务器 IP 地址
-        "server_port": settings.PORT  # 服务器端口
+        "server_ip": server_ip,  # Server IP address
+        "server_port": settings.PORT  # Server port
     }
 
 
 @router.post("/mqtt/test")
 def test_mqtt_connection():
-    """测试 MQTT 连接"""
+    """Test MQTT connection"""
     if not settings.MQTT_ENABLED:
         return {
             "success": False,
-            "message": "MQTT 服务已禁用",
+            "message": "MQTT service is disabled",
             "error": "MQTT_ENABLED is False"
         }
     
@@ -2043,7 +2043,7 @@ def test_mqtt_connection():
     try:
         from backend.config import get_local_ip
         
-        # 确定要测试的 Broker 地址
+        # Determine Broker address to test
         if settings.MQTT_USE_BUILTIN_BROKER:
             broker_host = get_local_ip()
             broker_port = settings.MQTT_BUILTIN_PORT
@@ -2051,14 +2051,14 @@ def test_mqtt_connection():
             broker_host = settings.MQTT_BROKER
             broker_port = settings.MQTT_PORT
         
-        # 测试 TCP 连接
+        # Test TCP connection
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(3)
         result = sock.connect_ex((broker_host, broker_port))
         sock.close()
         
         if result == 0:
-            # TCP 连接成功，尝试 MQTT 连接
+            # TCP connection successful, try MQTT connection
             import paho.mqtt.client as mqtt
             import uuid
             
@@ -2068,17 +2068,17 @@ def test_mqtt_connection():
             def on_connect_test(client, userdata, flags, rc):
                 connection_result["success"] = (rc == 0)
                 if rc == 0:
-                    connection_result["message"] = "MQTT 连接成功"
+                    connection_result["message"] = "MQTT connection successful"
                 else:
-                    connection_result["message"] = f"MQTT 连接失败，错误代码: {rc}"
+                    connection_result["message"] = f"MQTT connection failed, error code: {rc}"
                 client.disconnect()
             
             def on_connect_fail_test(client, userdata):
                 connection_result["success"] = False
-                connection_result["message"] = "MQTT 连接超时"
+                connection_result["message"] = "MQTT connection timeout"
             
             try:
-                # 明确指定使用 MQTT 3.1.1 协议（aMQTT broker 不支持 MQTT 5.0）
+                # Explicitly specify MQTT 3.1.1 protocol (aMQTT broker does not support MQTT 5.0)
                 test_client = mqtt.Client(
                     client_id=f"test_client_{uuid.uuid4().hex[:8]}",
                     protocol=mqtt.MQTTv311
@@ -2086,7 +2086,7 @@ def test_mqtt_connection():
                 test_client.on_connect = on_connect_test
                 test_client.on_connect_fail = on_connect_fail_test
                 
-                # 内置 Broker 不需要认证，外部 Broker 才需要
+                # Built-in Broker does not require authentication, external Broker does
                 if not settings.MQTT_USE_BUILTIN_BROKER:
                     if settings.MQTT_USERNAME and settings.MQTT_PASSWORD:
                         test_client.username_pw_set(settings.MQTT_USERNAME, settings.MQTT_PASSWORD)
@@ -2094,7 +2094,7 @@ def test_mqtt_connection():
                 test_client.connect(broker_host, broker_port, keepalive=5)
                 test_client.loop_start()
                 
-                # 等待连接结果（最多等待 3 秒）
+                # Wait for connection result (wait up to 3 seconds)
                 timeout = 3
                 elapsed = 0
                 while elapsed < timeout and connection_result["message"] == "":
@@ -2105,7 +2105,7 @@ def test_mqtt_connection():
                 test_client.disconnect()
                 
                 if connection_result["message"] == "":
-                    connection_result["message"] = "连接超时"
+                    connection_result["message"] = "Connection timeout"
                 
                 return {
                     "success": connection_result["success"],
@@ -2123,31 +2123,31 @@ def test_mqtt_connection():
                         pass
                 return {
                     "success": False,
-                    "message": f"MQTT 连接测试失败: {str(e)}",
+                    "message": f"MQTT connection test failed: {str(e)}",
                     "broker": f"{broker_host}:{broker_port}",
                     "broker_type": "builtin" if settings.MQTT_USE_BUILTIN_BROKER else "external",
                     "tcp_connected": True
                 }
         else:
-            error_msg = f"无法连接到 MQTT Broker ({broker_host}:{broker_port})"
+            error_msg = f"Cannot connect to MQTT Broker ({broker_host}:{broker_port})"
             error_detail = ""
             
-            # macOS/Linux 错误代码
+            # macOS/Linux error codes
             if result == 61 or result == 111:  # ECONNREFUSED (macOS: 61, Linux: 111)
-                error_msg += " - 连接被拒绝"
-                error_detail = "MQTT Broker 可能未运行。请启动 MQTT Broker 服务。"
+                error_msg += " - Connection refused"
+                error_detail = "MQTT Broker may not be running. Please start MQTT Broker service."
             elif result == 60 or result == 110:  # ETIMEDOUT (macOS: 60, Linux: 110)
-                error_msg += " - 连接超时"
-                error_detail = "网络连接超时，请检查网络和防火墙设置。"
+                error_msg += " - Connection timeout"
+                error_detail = "Network connection timeout, please check network and firewall settings."
             elif result == 64 or result == 113:  # EHOSTUNREACH (macOS: 64, Linux: 113)
-                error_msg += " - 无法到达主机"
-                error_detail = "无法到达 MQTT Broker 地址，请检查 Broker 地址配置。"
+                error_msg += " - Host unreachable"
+                error_detail = "Cannot reach MQTT Broker address, please check Broker address configuration."
             elif result == 51:  # ENETUNREACH (macOS)
-                error_msg += " - 网络不可达"
-                error_detail = "网络不可达，请检查网络连接和 Broker 地址。"
+                error_msg += " - Network unreachable"
+                error_detail = "Network unreachable, please check network connection and Broker address."
             else:
-                error_msg += f" - 错误代码: {result}"
-                error_detail = "请检查 MQTT Broker 配置和运行状态。"
+                error_msg += f" - Error code: {result}"
+                error_detail = "Please check MQTT Broker configuration and running status."
             
             return {
                 "success": False,
@@ -2162,7 +2162,7 @@ def test_mqtt_connection():
     except socket.gaierror as e:
         return {
             "success": False,
-            "message": f"无法解析 MQTT Broker 地址: {str(e)}",
+            "message": f"Cannot resolve MQTT Broker address: {str(e)}",
             "broker": f"{settings.MQTT_BROKER}:{settings.MQTT_PORT}",
             "tcp_connected": False,
             "error": "DNS resolution failed"
@@ -2170,7 +2170,7 @@ def test_mqtt_connection():
     except Exception as e:
         return {
             "success": False,
-            "message": f"连接测试失败: {str(e)}",
+            "message": f"Connection test failed: {str(e)}",
             "broker": f"{settings.MQTT_BROKER}:{settings.MQTT_PORT}",
             "tcp_connected": False,
             "error": str(e)

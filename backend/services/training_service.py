@@ -1,4 +1,4 @@
-"""模型训练服务"""
+"""Model training service"""
 import logging
 import threading
 import io
@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Optional, Dict, List
 from datetime import datetime
 
-# 延迟导入 ultralytics，避免在模块加载时就必须安装
+# Lazy import ultralytics to avoid requiring installation at module load time
 try:
     from ultralytics import YOLO
 except ImportError:
@@ -18,18 +18,18 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# 数据库
+# Database
 from backend.models.database import SessionLocal, TrainingRecord, TrainingLog
 from backend.config import settings
 
 
 def _setup_pytorch_compatibility():
     """
-    设置 PyTorch 2.6+ 兼容性（后备方案）
+    Setup PyTorch 2.6+ compatibility (fallback)
     
-    注意：ultralytics 8.3.162+ 版本已经修复了 PyTorch 2.6+ 的兼容性问题
-    最新版本 8.3.229+ 已测试与 PyTorch 2.9 兼容
-    此函数仅作为后备方案，如果升级后仍有问题才会使用
+    Note: ultralytics 8.3.162+ has fixed PyTorch 2.6+ compatibility issues
+    Latest version 8.3.229+ has been tested compatible with PyTorch 2.9
+    This function is only a fallback, used only if issues persist after upgrade
     """
     try:
         import torch
@@ -38,7 +38,7 @@ def _setup_pytorch_compatibility():
         
         safe_globals = []
         
-        # 添加 ultralytics 相关的所有类
+        # Add all ultralytics related classes
         try:
             from ultralytics.nn.tasks import (
                 DetectionModel, SegmentationModel, 
@@ -48,7 +48,7 @@ def _setup_pytorch_compatibility():
         except ImportError:
             pass
         
-        # 添加 ultralytics.nn.modules 中的所有类
+        # Add all classes from ultralytics.nn.modules
         try:
             from ultralytics.nn import modules as ultralytics_modules
             for attr_name, attr_value in ultralytics_modules.__dict__.items():
@@ -61,7 +61,7 @@ def _setup_pytorch_compatibility():
         except (ImportError, AttributeError):
             pass
         
-        # 添加 PyTorch 内置类
+        # Add PyTorch built-in classes
         try:
             import torch.nn.modules.container
             safe_globals.append(torch.nn.modules.container.Sequential)
@@ -76,40 +76,40 @@ def _setup_pytorch_compatibility():
 
 
 class LogCapture:
-    """捕获训练过程中的日志输出"""
+    """Capture log output during training"""
     def __init__(self, training_id: str, project_id: str):
         self.training_id = training_id
         self.project_id = project_id
         self.original_stdout = sys.stdout
         self.original_stderr = sys.stderr
-        self.last_log_line = ''  # 用于去重
+        self.last_log_line = ''  # For deduplication
         import re
         self.ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
         
     def write(self, message):
-        """捕获标准输出，只捕获训练相关的日志"""
-        # 先写入原始输出
+        """Capture standard output, only capture training-related logs"""
+        # Write to original output first
         self.original_stdout.write(message)
         
         if message.strip():
-            # 清理ANSI转义码
+            # Clean ANSI escape codes
             cleaned_message = self._strip_ansi_codes(message.rstrip('\n'))
-            # 过滤掉空行和只包含控制字符的行
+            # Filter out empty lines and lines with only control characters
             if cleaned_message.strip():
-                # 过滤：只捕获训练相关的日志
+                # Filter: only capture training-related logs
                 if self._is_training_log(cleaned_message):
-                    # 去重：如果和上一条日志相同，跳过（避免重复的进度条更新）
+                    # Deduplication: skip if same as last log line (avoid duplicate progress bar updates)
                     cleaned_stripped = cleaned_message.strip()
                     if cleaned_stripped != self.last_log_line:
                         self.last_log_line = cleaned_stripped
                         training_service._add_log(self.training_id, self.project_id, cleaned_message)
     
     def _is_training_log(self, message: str) -> bool:
-        """判断是否为训练相关的日志"""
-        # 转换为小写便于匹配
+        """Determine if message is training-related log"""
+        # Convert to lowercase for matching
         msg_lower = message.lower()
         
-        # 训练相关的关键词
+        # Training-related keywords
         training_keywords = [
             'epoch', 'train', 'val', 'loss', 'map', 'precision', 'recall',
             'fitness', 'yolo', 'ultralytics', 'class', 'box', 'cls', 'dfl',
@@ -118,57 +118,57 @@ class LogCapture:
             'weight', 'classes', 'dataset', 'results', 'epochs', 'patience',
             'best', 'saved', 'results.csv', 'weights/', 'train_batch',
             'val_batch', 'plot', 'predict', 'confusion', 'matrix',
-            # 中文关键词
+            # Chinese keywords (for compatibility)
             '训练', '验证', '轮次', '批次', '损失', '模型', '数据集',
-            # 进度指示
+            # Progress indicators
             'eta', 'time', 'memory', 'gpu', 'cpu'
         ]
         
-        # 排除不相关的日志关键词（如其他模块的日志）
+        # Exclude unrelated log keywords (e.g., logs from other modules)
         exclude_keywords = [
             'mqtt', 'websocket', 'http', 'api', 'route', 'database',
             'sqlite', 'ne301', 'docker', 'mount', 'filesystem',
             'quantization', 'export', 'download', 'upload', 'annotation',
-            # FastAPI/Uvicorn 相关
+            # FastAPI/Uvicorn related
             'uvicorn', 'started server', 'application startup',
             'info:', 'warning:', 'error:', 'debug:',
-            # 排除纯配置信息
+            # Exclude pure configuration information
             'config', 'settings', 'environment',
-            # MQTT Broker 相关错误（aMQTT 内部异常，不应显示在训练日志中）
+            # MQTT Broker related errors (aMQTT internal exceptions, should not appear in training logs)
             'brokerprotocolhandler', 'unhandled exception', 'reader coro',
             'timeouterror', 'timeout error'
         ]
         
-        # 检查排除关键词（如果包含排除关键词且不包含训练关键词，则排除）
+        # Check exclude keywords (if contains exclude keywords and no training keywords, exclude)
         has_exclude = any(keyword in msg_lower for keyword in exclude_keywords)
         has_training = any(keyword in msg_lower for keyword in training_keywords)
         
-        # 如果包含排除关键词但不包含训练关键词，则不是训练日志
+        # If contains exclude keywords but no training keywords, not a training log
         if has_exclude and not has_training:
             return False
         
-        # 如果包含训练关键词，则是训练日志
+        # If contains training keywords, it's a training log
         if has_training:
             return True
         
-        # 如果包含数字和常见训练输出格式（如进度条、百分比等），可能是训练日志
+        # If contains numbers and common training output formats (e.g., progress bars, percentages), might be training log
         import re
-        # 匹配类似 "100%|████████████████| 100/100" 的进度条
+        # Match progress bars like "100%|████████████████| 100/100"
         if re.search(r'\d+%|█+|[\d/]+', message):
-            # 进一步检查是否在训练上下文中
+            # Further check if in training context
             if not has_exclude:
                 return True
         
-        # 默认不捕获（严格模式，只捕获明确的训练日志）
+        # Default not capture (strict mode, only capture explicit training logs)
         return False
     
     def _strip_ansi_codes(self, text: str) -> str:
-        """移除ANSI转义码"""
-        # 移除ANSI转义序列（颜色、样式、光标控制等）
+        """Remove ANSI escape codes"""
+        # Remove ANSI escape sequences (colors, styles, cursor control, etc.)
         cleaned = self.ansi_escape.sub('', text)
-        # 移除常见的控制字符
+        # Remove common control characters
         cleaned = cleaned.replace('\r', '')
-        # 移除只包含空白字符的行
+        # Remove lines containing only whitespace
         cleaned = cleaned.strip()
         return cleaned
         
@@ -186,20 +186,20 @@ class LogCapture:
 
 
 class TrainingService:
-    """训练服务管理器"""
+    """Training service manager"""
     
     def __init__(self):
-        # 支持多个训练记录：{project_id: [training_record1, training_record2, ...]}
+        # Support multiple training records: {project_id: [training_record1, training_record2, ...]}
         self.training_records: Dict[str, List[Dict]] = {}
-        # 当前活动的训练：{project_id: training_id}
+        # Currently active trainings: {project_id: training_id}
         self.active_trainings: Dict[str, str] = {}
-        # 训练线程跟踪：{training_id: thread}
+        # Training thread tracking: {training_id: thread}
         self.training_threads: Dict[str, threading.Thread] = {}
         self.training_lock = threading.Lock()
     
-    # ========= 数据库相关工具方法 =========
+    # ========= Database related utility methods =========
     def _persist_record(self, record: Dict):
-        """将训练记录写入数据库（插入或更新）"""
+        """Write training record to database (insert or update)"""
         session = SessionLocal()
         try:
             db_obj = session.query(TrainingRecord).filter(
@@ -212,7 +212,7 @@ class TrainingService:
                 )
                 session.add(db_obj)
             
-            # 同步字段
+            # Sync fields
             db_obj.status = record.get('status')
             db_obj.start_time = datetime.fromisoformat(record['start_time']) if record.get('start_time') else None
             db_obj.end_time = datetime.fromisoformat(record['end_time']) if record.get('end_time') else None
@@ -234,7 +234,7 @@ class TrainingService:
             session.close()
 
     def _update_db_fields(self, training_id: str, project_id: str, **fields):
-        """更新数据库训练记录指定字段"""
+        """Update specified fields of database training record"""
         session = SessionLocal()
         try:
             db_obj = session.query(TrainingRecord).filter(
@@ -252,7 +252,7 @@ class TrainingService:
             session.close()
 
     def _get_log_count(self, project_id: str, training_id: str) -> int:
-        """从内存中获取日志数量"""
+        """Get log count from memory"""
         with self.training_lock:
             if project_id in self.training_records:
                 for record in self.training_records[project_id]:
@@ -261,7 +261,7 @@ class TrainingService:
         return 0
 
     def _get_db_logs(self, project_id: str, training_id: str, limit: int = 1000) -> List[str]:
-        """从数据库获取日志（按时间升序，最多 limit 条）"""
+        """Get logs from database (ascending by time, max limit entries)"""
         session = SessionLocal()
         try:
             rows = session.query(TrainingLog).filter(
@@ -305,33 +305,33 @@ class TrainingService:
         mixup: Optional[float] = None,
     ) -> Dict:
         """
-        启动训练任务
+        Start training task
         
         Args:
-            project_id: 项目ID
-            dataset_path: 数据集路径（包含 data.yaml）
-            model_size: 模型大小 ('n', 's', 'm', 'l', 'x')
-            epochs: 训练轮数
-            imgsz: 图像尺寸
-            batch: 批次大小
-            device: 设备 ('cpu', 'cuda', '0', '1', 'mps', ...)
+            project_id: Project ID
+            dataset_path: Dataset path (contains data.yaml)
+            model_size: Model size ('n', 's', 'm', 'l', 'x')
+            epochs: Number of training epochs
+            imgsz: Image size
+            batch: Batch size
+            device: Device ('cpu', 'cuda', '0', '1', 'mps', ...)
             
         Returns:
-            训练信息字典
+            Training information dictionary
         """
         with self.training_lock:
             if project_id in self.active_trainings:
                 raise ValueError(f"Training already in progress for project {project_id}")
             
-            # 检查数据集是否存在
+            # Check if dataset exists
             data_yaml = dataset_path / "data.yaml"
             if not data_yaml.exists():
                 raise FileNotFoundError(f"data.yaml not found at {data_yaml}")
             
-            # 生成训练记录ID
+            # Generate training record ID
             training_id = f"{project_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             
-            # 创建训练信息
+            # Create training information
             training_info = {
                 'training_id': training_id,
                 'project_id': project_id,
@@ -348,18 +348,18 @@ class TrainingService:
                 'model_path': None
             }
             
-            # 初始化训练记录列表
+            # Initialize training record list
             if project_id not in self.training_records:
                 self.training_records[project_id] = []
             
-            # 添加到训练记录列表（最新的在前面）
+            # Add to training record list (newest first)
             self.training_records[project_id].insert(0, training_info)
             self.active_trainings[project_id] = training_id
             
-            # 持久化到数据库
+            # Persist to database
             self._persist_record(training_info)
             
-            # 在后台线程中启动训练（传递 training_id 用于生成唯一目录名）
+            # Start training in background thread (pass training_id to generate unique directory name)
             thread = threading.Thread(
                 target=self._run_training,
                 args=(training_id, project_id, dataset_path, training_info, model_size, epochs, imgsz, batch, device,
@@ -368,7 +368,7 @@ class TrainingService:
                 daemon=True,
                 name=f"TrainingThread-{training_id}"
             )
-            # 保存线程引用以便追踪
+            # Save thread reference for tracking
             with self.training_lock:
                 self.training_threads[training_id] = thread
             thread.start()
@@ -409,17 +409,17 @@ class TrainingService:
         mosaic: Optional[float] = None,
         mixup: Optional[float] = None,
     ):
-        """在后台线程中运行训练"""
+        """Run training in background thread"""
         record_for_db = None
         training_success = False
         try:
             if YOLO is None:
                 raise ImportError("ultralytics library is not installed. Please install it with: pip install ultralytics")
             
-            # 设置 PyTorch 2.6+ 兼容性（在加载模型前）
+            # Setup PyTorch 2.6+ compatibility (before loading model)
             _setup_pytorch_compatibility()
             
-            # 读取data.yaml获取类别信息
+            # Read data.yaml to get class information
             data_yaml_path = dataset_path / "data.yaml"
             class_names = []
             num_classes = 0
@@ -429,78 +429,78 @@ class TrainingService:
                     class_names = data_config.get('names', [])
                     num_classes = data_config.get('nc', 0)
             except Exception as e:
-                self._add_log(training_id, project_id, f"警告: 无法读取data.yaml中的类别信息: {str(e)}")
+                self._add_log(training_id, project_id, f"Warning: Unable to read class information from data.yaml: {str(e)}")
             
-            # 使用日志捕获
+            # Use log capture
             with LogCapture(training_id, project_id):
-                # 添加初始日志 - 训练参数信息
+                # Add initial logs - training parameter information
                 self._add_log(training_id, project_id, "=" * 60)
-                self._add_log(training_id, project_id, "训练任务启动")
+                self._add_log(training_id, project_id, "Training task started")
                 self._add_log(training_id, project_id, "=" * 60)
-                self._add_log(training_id, project_id, f"模型: yolov8{model_size}.pt")
-                self._add_log(training_id, project_id, f"训练轮数 (Epochs): {epochs}")
-                self._add_log(training_id, project_id, f"批次大小 (Batch Size): {batch}")
-                self._add_log(training_id, project_id, f"图像尺寸 (Image Size): {imgsz}")
-                self._add_log(training_id, project_id, f"设备 (Device): {device or 'auto'}")
-                self._add_log(training_id, project_id, f"数据集路径: {dataset_path}")
+                self._add_log(training_id, project_id, f"Model: yolov8{model_size}.pt")
+                self._add_log(training_id, project_id, f"Epochs: {epochs}")
+                self._add_log(training_id, project_id, f"Batch Size: {batch}")
+                self._add_log(training_id, project_id, f"Image Size: {imgsz}")
+                self._add_log(training_id, project_id, f"Device: {device or 'auto'}")
+                self._add_log(training_id, project_id, f"Dataset path: {dataset_path}")
                 self._add_log(training_id, project_id, "-" * 60)
                 
-                # 添加类别信息
+                # Add class information
                 if class_names:
-                    self._add_log(training_id, project_id, f"类别数量 (Classes): {num_classes}")
-                    self._add_log(training_id, project_id, "类别列表:")
+                    self._add_log(training_id, project_id, f"Number of classes: {num_classes}")
+                    self._add_log(training_id, project_id, "Class list:")
                     for idx, cls_name in enumerate(class_names):
                         self._add_log(training_id, project_id, f"  [{idx}] {cls_name}")
                 else:
-                    self._add_log(training_id, project_id, f"类别数量 (Classes): {num_classes}")
+                    self._add_log(training_id, project_id, f"Number of classes: {num_classes}")
                 self._add_log(training_id, project_id, "-" * 60)
                 
-                # 加载预训练模型（ultralytics 会自动处理下载）
-                # 使用模型名称（如 'yolov8n'）而不是文件名（'yolov8n.pt'），
-                # 这样 ultralytics 会自动从 GitHub 下载权重文件
+                # Load pretrained model (ultralytics will handle download automatically)
+                # Use model name (e.g., 'yolov8n') instead of filename ('yolov8n.pt'),
+                # so ultralytics will automatically download weights from GitHub
                 model_name_str = f'yolov8{model_size}'
                 model_file_name = f'yolov8{model_size}.pt'
-                self._add_log(training_id, project_id, f"正在加载预训练模型: {model_file_name}")
+                self._add_log(training_id, project_id, f"Loading pretrained model: {model_file_name}")
                 
                 try:
-                    # 使用模型名称字符串，ultralytics 会自动下载权重
+                    # Use model name string, ultralytics will automatically download weights
                     model = YOLO(model_name_str)
-                    self._add_log(training_id, project_id, "模型加载成功")
+                    self._add_log(training_id, project_id, "Model loaded successfully")
                 except Exception as e:
                     error_msg = str(e)
-                    # 如果是网络相关错误，提供友好的提示
+                    # If network-related error, provide friendly message
                     if any(keyword in error_msg.lower() for keyword in ['download', 'connection', 'ssl', 'url', 'network', 'timeout']):
                         download_url = f"https://github.com/ultralytics/assets/releases/download/v8.1.0/{model_file_name}"
                         home_dir = Path.home()
                         raise ConnectionError(
-                            f"无法下载预训练模型 {model_file_name}。\n\n"
-                            f"解决方案：\n"
-                            f"1. 检查网络连接\n"
-                            f"2. 手动下载：{download_url}\n"
-                            f"3. 放置到以下任一位置：\n"
+                            f"Unable to download pretrained model {model_file_name}.\n\n"
+                            f"Solutions:\n"
+                            f"1. Check network connection\n"
+                            f"2. Manual download: {download_url}\n"
+                            f"3. Place in one of the following locations:\n"
                             f"   - {Path.cwd() / model_file_name}\n"
                             f"   - {home_dir / '.ultralytics' / 'weights' / model_file_name}\n"
                             f"   - {home_dir / '.cache' / 'ultralytics' / model_file_name}\n"
-                            f"4. 然后使用文件路径加载模型\n"
+                            f"4. Then use file path to load model\n"
                         ) from e
-                    # 如果是文件不存在错误，也提供相同的提示（可能是自动下载失败）
+                    # If file not found error, provide same message (might be auto-download failure)
                     if 'FileNotFoundError' in str(type(e).__name__) or 'No such file' in error_msg:
                         download_url = f"https://github.com/ultralytics/assets/releases/download/v8.1.0/{model_file_name}"
                         home_dir = Path.home()
                         raise FileNotFoundError(
-                            f"预训练模型 {model_file_name} 未找到，且自动下载失败。\n\n"
-                            f"解决方案：\n"
-                            f"1. 检查网络连接\n"
-                            f"2. 手动下载：{download_url}\n"
-                            f"3. 放置到以下任一位置：\n"
+                            f"Pretrained model {model_file_name} not found and auto-download failed.\n\n"
+                            f"Solutions:\n"
+                            f"1. Check network connection\n"
+                            f"2. Manual download: {download_url}\n"
+                            f"3. Place in one of the following locations:\n"
                             f"   - {Path.cwd() / model_file_name}\n"
                             f"   - {home_dir / '.ultralytics' / 'weights' / model_file_name}\n"
                             f"   - {home_dir / '.cache' / 'ultralytics' / model_file_name}\n"
                         ) from e
                     raise
                 
-                # 准备训练参数（按照 ultralytics 文档的方式）
-                # 使用 training_id 生成唯一的训练目录名称，避免多次训练被覆盖
+                # Prepare training parameters (following ultralytics documentation)
+                # Use training_id to generate unique training directory name, avoid overwriting multiple trainings
                 train_args = {
                     'data': str(dataset_path / "data.yaml"),
                     'epochs': epochs,
@@ -508,11 +508,11 @@ class TrainingService:
                     'batch': batch,
                     'device': device,
                     'project': str(dataset_path.parent),
-                    'name': f'train_{training_id}',  # 使用 training_id 确保每次训练都有唯一目录
-                    'exist_ok': False,  # 改为 False，因为每次训练应该使用新目录
+                    'name': f'train_{training_id}',  # Use training_id to ensure each training has unique directory
+                    'exist_ok': False,  # Changed to False, as each training should use new directory
                 }
                 
-                # 添加可选参数（如果提供）
+                # Add optional parameters (if provided)
                 if lr0 is not None:
                     train_args['lr0'] = lr0
                 if lrf is not None:
@@ -534,7 +534,7 @@ class TrainingService:
                 if amp is not None:
                     train_args['amp'] = amp
                 
-                # 数据增强参数（如果提供，否则使用默认值）
+                # Data augmentation parameters (if provided, otherwise use defaults)
                 augment_info = {
                     "hsv_h": hsv_h if hsv_h is not None else 0.015,
                     "hsv_s": hsv_s if hsv_s is not None else 0.7,
@@ -550,13 +550,13 @@ class TrainingService:
                     "mixup": mixup if mixup is not None else 0.0,
                 }
                 
-                # 将数据增强参数添加到训练参数中
+                # Add data augmentation parameters to training arguments
                 train_args.update(augment_info)
                 
                 self._add_log(training_id, project_id, "=" * 60)
-                self._add_log(training_id, project_id, "开始训练")
+                self._add_log(training_id, project_id, "Starting training")
                 self._add_log(training_id, project_id, "=" * 60)
-                self._add_log(training_id, project_id, f"训练参数:")
+                self._add_log(training_id, project_id, f"Training parameters:")
                 self._add_log(training_id, project_id, f"  data: {train_args['data']}")
                 self._add_log(training_id, project_id, f"  epochs: {epochs}")
                 self._add_log(training_id, project_id, f"  imgsz: {imgsz}")
@@ -564,28 +564,28 @@ class TrainingService:
                 self._add_log(training_id, project_id, f"  device: {device or 'auto'}")
                 self._add_log(training_id, project_id, f"  project: {train_args['project']}")
                 self._add_log(training_id, project_id, f"  name: {train_args['name']}")
-                self._add_log(training_id, project_id, f"  augment (默认): {augment_info}")
+                self._add_log(training_id, project_id, f"  augment (default): {augment_info}")
                 self._add_log(training_id, project_id, "-" * 60)
                 
-                # 运行训练（ultralytics 会自动处理所有细节）
-                # verbose=True 确保输出详细的训练信息
+                # Run training (ultralytics will handle all details automatically)
+                # verbose=True ensures detailed training information output
                 train_args['verbose'] = True
                 results = model.train(**train_args)
                 
-            # 训练成功完成
+            # Training completed successfully
             training_success = True
-            results_obj = results  # 保存结果对象，供后续使用
+            results_obj = results  # Save results object for later use
                 
-            # 训练完成，更新状态
+            # Training completed, update status
             with self.training_lock:
-                # 找到对应的训练记录
+                # Find corresponding training record
                 if project_id in self.training_records:
                     for record in self.training_records[project_id]:
                         if record.get('training_id') == training_id:
                             record['status'] = 'completed'
                             record['end_time'] = datetime.now().isoformat()
                             
-                            # 提取更多训练指标
+                            # Extract more training metrics
                             results_dict = results_obj.results_dict
                             record['metrics'] = {
                                 'best_fitness': float(results_dict.get('metrics/fitness(B)', 0)),
@@ -600,37 +600,37 @@ class TrainingService:
                                 'val_cls_loss': float(results_dict.get('val/cls_loss', 0)),
                                 'val_dfl_loss': float(results_dict.get('val/dfl_loss', 0)),
                             }
-                            # 获取保存的模型路径
+                            # Get saved model path
                             model_path = results_obj.save_dir / 'weights' / 'best.pt'
                             if model_path.exists():
                                 record['model_path'] = str(model_path)
                             record_for_db = record
                             break
                     
-                    # 清除活动训练标记
+                    # Clear active training flag
                     if project_id in self.active_trainings and self.active_trainings[project_id] == training_id:
                         del self.active_trainings[project_id]
             
-            # 同步到数据库
+            # Sync to database
             if record_for_db:
                 try:
                     self._persist_record(record_for_db)
-                    self._add_log(training_id, project_id, "训练完成！")
+                    self._add_log(training_id, project_id, "Training completed!")
                     logger.info(f"[Training] Training completed for project {project_id}, training_id: {training_id}")
                 except Exception as persist_error:
                     logger.error(f"[Training] Failed to persist completed training record: {persist_error}", exc_info=True)
             
         except KeyboardInterrupt:
-            # 处理用户中断（Ctrl+C）
+            # Handle user interrupt (Ctrl+C)
             error_msg = "Training interrupted by user"
-            self._add_log(training_id, project_id, f"训练被用户中断")
+            self._add_log(training_id, project_id, f"Training interrupted by user")
             logger.warning(f"[Training] Training interrupted for project {project_id}, training_id: {training_id}")
             training_success = False
             
         except Exception as e:
             error_msg = str(e)
             try:
-                self._add_log(training_id, project_id, f"训练失败: {error_msg}")
+                self._add_log(training_id, project_id, f"Training failed: {error_msg}")
             except Exception as log_error:
                 logger.error(f"[Training] Failed to add error log: {log_error}")
             
@@ -638,16 +638,16 @@ class TrainingService:
             training_success = False
             
         finally:
-            # 确保无论成功还是失败，都要更新状态和清除活动标记
+            # Ensure status is updated and active marker is cleared regardless of success or failure
             if not training_success:
-                # 如果训练没有成功，确保状态被更新为失败
+                # If training didn't succeed, ensure status is updated to failed
                 with self.training_lock:
                     record_for_db = None
-                    # 找到对应的训练记录
+                    # Find corresponding training record
                     if project_id in self.training_records:
                         for record in self.training_records[project_id]:
                             if record.get('training_id') == training_id:
-                                # 只有当状态还是running时才更新为failed
+                                # Only update to failed if status is still running
                                 if record.get('status') == 'running':
                                     record['status'] = 'failed'
                                     record['error'] = error_msg if 'error_msg' in locals() else "Training failed unexpectedly"
@@ -655,15 +655,15 @@ class TrainingService:
                                     record_for_db = record
                                 break
                     
-                    # 清除活动训练标记（无论状态如何都要清除）
+                    # Clear active training marker (clear regardless of status)
                     if project_id in self.active_trainings and self.active_trainings[project_id] == training_id:
                         del self.active_trainings[project_id]
                     
-                    # 清除线程跟踪
+                    # Clear thread tracking
                     if training_id in self.training_threads:
                         del self.training_threads[training_id]
                 
-                # 同步到数据库
+                # Sync to database
                 if record_for_db:
                     try:
                         self._persist_record(record_for_db)
@@ -672,15 +672,15 @@ class TrainingService:
                         logger.error(f"[Training] Failed to persist failed training record: {persist_error}", exc_info=True)
     
     def _add_log(self, training_id: str, project_id: str, message: str):
-        """添加日志到训练记录，并写入数据库"""
-        # 如果消息已带时间戳，保持原样；否则添加时间戳
+        """Add log to training record and write to database"""
+        # If message already has timestamp, keep as is; otherwise add timestamp
         if not message.startswith('[') or ']' not in message[:20]:
             timestamp = datetime.now().strftime('%H:%M:%S')
             log_entry = f"[{timestamp}] {message}"
         else:
             log_entry = message
         
-        # 内存追加（兼容运行时实时刷新）
+        # Append to memory (compatible with runtime real-time refresh)
         with self.training_lock:
             if project_id in self.training_records:
                 for record in self.training_records[project_id]:
@@ -690,7 +690,7 @@ class TrainingService:
                             record['logs'] = record['logs'][-5000:]
                         break
         
-        # 写入数据库日志表，并更新 log_count
+        # Write to database log table and update log_count
         session = SessionLocal()
         try:
             session.add(TrainingLog(
@@ -699,7 +699,7 @@ class TrainingService:
                 timestamp=datetime.utcnow(),
                 message=message
             ))
-            # 更新计数
+            # Update count
             db_obj = session.query(TrainingRecord).filter(
                 TrainingRecord.training_id == training_id,
                 TrainingRecord.project_id == project_id
@@ -714,7 +714,7 @@ class TrainingService:
             session.close()
     
     def _db_record_to_dict(self, db_obj: TrainingRecord) -> Dict:
-        """将数据库对象转换为字典"""
+        """Convert database object to dictionary"""
         metrics = {}
         if db_obj.metrics:
             try:
@@ -739,7 +739,7 @@ class TrainingService:
         }
 
     def get_training_records(self, project_id: str) -> List[Dict]:
-        """获取项目的所有训练记录（数据库 + 内存日志数）"""
+        """Get all training records for project (database + memory log count)"""
         session = SessionLocal()
         try:
             db_records = session.query(TrainingRecord).filter(
@@ -748,7 +748,7 @@ class TrainingService:
             results = []
             for db_obj in db_records:
                 data = self._db_record_to_dict(db_obj)
-                # 使用内存中的日志数量（如果有运行中的日志）
+                # Use log count from memory (if there are running logs)
                 mem_log_count = self._get_log_count(project_id, db_obj.training_id)
                 if mem_log_count:
                     data['log_count'] = mem_log_count
@@ -758,7 +758,7 @@ class TrainingService:
             session.close()
     
     def get_training_record(self, project_id: str, training_id: str) -> Optional[Dict]:
-        """获取指定的训练记录（数据库 + 内存日志数）"""
+        """Get specified training record (database + memory log count)"""
         session = SessionLocal()
         try:
             db_obj = session.query(TrainingRecord).filter(
@@ -771,24 +771,24 @@ class TrainingService:
             mem_log_count = self._get_log_count(project_id, training_id)
             if mem_log_count:
                 data['log_count'] = mem_log_count
-            # 日志从数据库读取（前端需要日志内容）
+            # Logs read from database (frontend needs log content)
             data['logs'] = self._get_db_logs(project_id, training_id, limit=2000)
             return data
         finally:
             session.close()
     
     def get_training_status(self, project_id: str) -> Optional[Dict]:
-        """获取当前活动的训练状态（优先内存活动，其次数据库最新）"""
+        """Get current active training status (prefer memory active, then database latest)"""
         with self.training_lock:
             if project_id in self.active_trainings:
                 training_id = self.active_trainings[project_id]
-                # 检查线程是否还在运行
+                # Check if thread is still running
                 thread = self.training_threads.get(training_id)
                 if thread is not None and not thread.is_alive():
-                    # 线程已经结束但状态还是running，说明训练异常终止
+                    # Thread has ended but status is still running, indicates abnormal termination
                     for record in self.training_records.get(project_id, []):
                         if record.get('training_id') == training_id and record.get('status') == 'running':
-                            # 更新状态为失败
+                            # Update status to failed
                             record['status'] = 'failed'
                             record['error'] = "Training thread terminated unexpectedly"
                             record['end_time'] = datetime.now().isoformat()
@@ -797,17 +797,17 @@ class TrainingService:
                                 logger.warning(f"[Training] Detected terminated thread for training {training_id}, marked as failed")
                             except Exception as e:
                                 logger.error(f"[Training] Failed to update terminated training status: {e}")
-                            # 清除活动标记
+                            # Clear active flag
                             del self.active_trainings[project_id]
                             if training_id in self.training_threads:
                                 del self.training_threads[training_id]
                             break
                 
-                # 返回内存中的记录以保证日志和状态实时
+                # Return record from memory to ensure logs and status are real-time
                 for record in self.training_records.get(project_id, []):
                     if record.get('training_id') == training_id:
                         return record
-        # 若无活动训练，取数据库最新一条
+        # If no active training, get latest from database
         session = SessionLocal()
         try:
             db_obj = session.query(TrainingRecord).filter(
@@ -815,7 +815,7 @@ class TrainingService:
             ).order_by(TrainingRecord.start_time.desc()).first()
             if db_obj:
                 data = self._db_record_to_dict(db_obj)
-                # 补充日志（从数据库）
+                # Supplement logs (from database)
                 data['logs'] = self._get_db_logs(project_id, db_obj.training_id, limit=2000)
                 return data
             return None
@@ -824,10 +824,10 @@ class TrainingService:
     
     def stop_training(self, project_id: str, training_id: Optional[str] = None) -> bool:
         """
-        停止训练：
-        - 如果传入 training_id，则尝试停止该记录；
-        - 否则停止当前活动训练。
-        注：目前未实现硬中断，只标记为 stopped。
+        Stop training:
+        - If training_id is provided, try to stop that record;
+        - Otherwise stop current active training.
+        Note: Hard interrupt not implemented yet, only marks as stopped.
         """
         with self.training_lock:
             target_id = training_id or self.active_trainings.get(project_id)
@@ -837,7 +837,7 @@ class TrainingService:
             if record and record.get('status') == 'running':
                 record['status'] = 'stopped'
                 record['end_time'] = datetime.now().isoformat()
-                # 移除活动标记
+                # Remove active marker
                 if project_id in self.active_trainings and self.active_trainings[project_id] == target_id:
                     del self.active_trainings[project_id]
                 try:
@@ -845,12 +845,12 @@ class TrainingService:
                 except Exception:
                     pass
                 return True
-            # 如果已完成或失败，直接返回 False
+            # If already completed or failed, return False directly
             return False
     
     def clear_training(self, project_id: str, training_id: Optional[str] = None):
-        """清除训练记录，同时删除模型文件"""
-        # 为避免因内存丢失导致删除失败，优先从数据库读取待删记录
+        """Clear training record and delete model files"""
+        # To avoid deletion failure due to memory loss, prioritize reading records to delete from database
         def _delete_model_file(model_path: Optional[str]):
             if not model_path:
                 return
@@ -869,17 +869,17 @@ class TrainingService:
         session = SessionLocal()
         try:
             if training_id:
-                # 从 DB 取记录（优先，防止内存缺失）
+                # Get record from DB (priority, prevent memory loss)
                 db_obj = session.query(TrainingRecord).filter(
                     TrainingRecord.training_id == training_id,
                     TrainingRecord.project_id == project_id
                 ).first()
                 model_path = db_obj.model_path if db_obj else None
 
-                # 删除模型文件
+                # Delete model file
                 _delete_model_file(model_path)
 
-                # 删除 DB 记录
+                # Delete DB record
                 session.query(TrainingRecord).filter(
                     TrainingRecord.training_id == training_id,
                     TrainingRecord.project_id == project_id
@@ -890,7 +890,7 @@ class TrainingService:
                 ).delete()
                 session.commit()
 
-                # 同步内存
+                # Sync memory
                 with self.training_lock:
                     if project_id in self.training_records:
                         self.training_records[project_id] = [
@@ -902,7 +902,7 @@ class TrainingService:
                     if project_id in self.active_trainings and self.active_trainings[project_id] == training_id:
                         del self.active_trainings[project_id]
             else:
-                # 清除项目全部记录
+                # Clear all records for project
                 db_objs = session.query(TrainingRecord).filter(
                     TrainingRecord.project_id == project_id
                 ).all()
@@ -925,5 +925,5 @@ class TrainingService:
             session.close()
 
 
-# 全局训练服务实例
+# Global training service instance
 training_service = TrainingService()

@@ -449,6 +449,7 @@ class TrainingService:
         record_for_db = None
         training_success = False
         stop_requested = False
+        model = None  # Keep model reference for cleanup
         # Use shared stop event if not provided (backward safety)
         stop_event = stop_event or self.stop_events.get(training_id)
         try:
@@ -701,26 +702,126 @@ class TrainingService:
         except KeyboardInterrupt:
             # Handle user interrupt (Ctrl+C)
             error_msg = "Training interrupted by user"
-            self._add_log(training_id, project_id, f"Training interrupted by user")
+            try:
+                self._add_log(training_id, project_id, f"Training interrupted by user")
+            except Exception as log_error:
+                logger.error(f"[Training] Failed to add error log: {log_error}")
             logger.warning(f"[Training] Training interrupted for project {project_id}, training_id: {training_id}")
+            training_success = False
+            
+        except MemoryError as e:
+            # Handle out-of-memory errors specifically
+            error_msg = (
+                "Training failed due to insufficient memory (OOM). "
+                "The system killed the training process.\n\n"
+                "Suggestions:\n"
+                "1. Reduce batch size (current: {})\n"
+                "2. Reduce image size (current: {})\n"
+                "3. Use a smaller model size (e.g., 'n' instead of 's'/'m'/'l'/'x')\n"
+                "4. Close other applications to free memory\n"
+                "5. If using GPU, reduce batch size or use CPU with smaller batch size"
+            ).format(batch, imgsz)
+            try:
+                self._add_log(training_id, project_id, f"Training failed: Out of memory (OOM)")
+                self._add_log(training_id, project_id, "Suggestions:")
+                self._add_log(training_id, project_id, f"  - Reduce batch size from {batch} to a smaller value")
+                self._add_log(training_id, project_id, f"  - Reduce image size from {imgsz} to a smaller value")
+                self._add_log(training_id, project_id, f"  - Use a smaller model (e.g., 'n' size)")
+            except Exception as log_error:
+                logger.error(f"[Training] Failed to add error log: {log_error}")
+            logger.error(f"[Training] Training failed due to OOM for project {project_id}, training_id: {training_id}: {e}", exc_info=True)
+            training_success = False
+            
+        except RuntimeError as e:
+            # Handle PyTorch/CUDA runtime errors, which often include memory errors
+            error_msg_str = str(e).lower()
+            if any(keyword in error_msg_str for keyword in ['out of memory', 'oom', 'cuda out of memory', 'killed', 'memory']):
+                error_msg = (
+                    "Training failed due to insufficient memory (OOM). "
+                    "CUDA/GPU or system memory exhausted.\n\n"
+                    "Suggestions:\n"
+                    "1. Reduce batch size (current: {})\n"
+                    "2. Reduce image size (current: {})\n"
+                    "3. Use a smaller model size (e.g., 'n' instead of 's'/'m'/'l'/'x')\n"
+                    "4. Close other applications to free memory\n"
+                    "5. If using GPU, reduce batch size or use CPU with smaller batch size"
+                ).format(batch, imgsz)
+                try:
+                    self._add_log(training_id, project_id, f"Training failed: Out of memory (OOM)")
+                    self._add_log(training_id, project_id, "Suggestions:")
+                    self._add_log(training_id, project_id, f"  - Reduce batch size from {batch} to a smaller value")
+                    self._add_log(training_id, project_id, f"  - Reduce image size from {imgsz} to a smaller value")
+                    self._add_log(training_id, project_id, f"  - Use a smaller model (e.g., 'n' size)")
+                except Exception as log_error:
+                    logger.error(f"[Training] Failed to add error log: {log_error}")
+            else:
+                # Other runtime errors
+                error_msg = str(e)
+                try:
+                    self._add_log(training_id, project_id, f"Training failed: {error_msg}")
+                except Exception as log_error:
+                    logger.error(f"[Training] Failed to add error log: {log_error}")
+            logger.error(f"[Training] Training failed (RuntimeError) for project {project_id}, training_id: {training_id}: {e}", exc_info=True)
             training_success = False
             
         except Exception as e:
             error_msg = str(e)
-            try:
-                self._add_log(training_id, project_id, f"Training failed: {error_msg}")
-            except Exception as log_error:
-                logger.error(f"[Training] Failed to add error log: {log_error}")
+            # Check if error message indicates OOM/killed
+            error_msg_lower = error_msg.lower()
+            if any(keyword in error_msg_lower for keyword in ['killed', 'out of memory', 'oom', 'memory']):
+                error_msg = (
+                    "Training failed due to insufficient memory. "
+                    "The process was killed by the system.\n\n"
+                    "Suggestions:\n"
+                    "1. Reduce batch size (current: {})\n"
+                    "2. Reduce image size (current: {})\n"
+                    "3. Use a smaller model size\n"
+                    "4. Close other applications to free memory"
+                ).format(batch, imgsz)
+                try:
+                    self._add_log(training_id, project_id, f"Training failed: Out of memory (process killed)")
+                    self._add_log(training_id, project_id, f"Original error: {str(e)}")
+                    self._add_log(training_id, project_id, "Please reduce batch size or image size and try again")
+                except Exception as log_error:
+                    logger.error(f"[Training] Failed to add error log: {log_error}")
+            else:
+                try:
+                    self._add_log(training_id, project_id, f"Training failed: {error_msg}")
+                except Exception as log_error:
+                    logger.error(f"[Training] Failed to add error log: {log_error}")
             
             logger.error(f"[Training] Training failed for project {project_id}, training_id: {training_id}: {e}", exc_info=True)
             training_success = False
             
         finally:
+            # Cleanup resources (GPU/CUDA memory, etc.)
+            try:
+                # Clear CUDA cache if available
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        torch.cuda.synchronize()
+                        logger.debug(f"[Training] CUDA cache cleared for training {training_id}")
+                except Exception:
+                    pass  # CUDA not available or already cleaned up
+                
+                # Delete model reference to free memory
+                if model is not None:
+                    del model
+                    import gc
+                    gc.collect()
+                    logger.debug(f"[Training] Model object deleted and garbage collected for training {training_id}")
+            except Exception as cleanup_error:
+                logger.warning(f"[Training] Error during resource cleanup for training {training_id}: {cleanup_error}")
+            
             # Ensure status is updated and active marker is cleared regardless of success or failure
-            if not training_success:
+            # Always clean up thread tracking and active markers, even if training succeeded
+            # (success case was handled earlier, but we still need to ensure cleanup)
+            with self.training_lock:
                 # If training didn't succeed, ensure status is updated to failed (unless stop requested)
-                stop_requested = stop_event.is_set() if stop_event else False
-                with self.training_lock:
+                if not training_success:
+                    stop_requested = stop_event.is_set() if stop_event else False
                     record_for_db = None
                     # Find corresponding training record
                     if project_id in self.training_records:
@@ -738,27 +839,31 @@ class TrainingService:
                                     record_for_db = record
                                 break
                     
-                    # Clear active training marker (clear regardless of status)
-                    if project_id in self.active_trainings and self.active_trainings[project_id] == training_id:
-                        del self.active_trainings[project_id]
-                    
-                    # Clear thread tracking
-                    if training_id in self.training_threads:
-                        del self.training_threads[training_id]
-                    if training_id in self.stop_events:
-                        del self.stop_events[training_id]
+                    # Sync to database
+                    if record_for_db:
+                        try:
+                            self._persist_record(record_for_db)
+                            if stop_requested:
+                                try:
+                                    self._add_log(training_id, project_id, "Training stopped by user")
+                                except Exception:
+                                    pass
+                                logger.info(f"[Training] Updated training status to 'stopped' for project {project_id}, training_id: {training_id}")
+                            else:
+                                logger.info(f"[Training] Updated training status to 'failed' for project {project_id}, training_id: {training_id}")
+                        except Exception as persist_error:
+                            logger.error(f"[Training] Failed to persist failed training record: {persist_error}", exc_info=True)
                 
-                # Sync to database
-                if record_for_db:
-                    try:
-                        self._persist_record(record_for_db)
-                        if stop_requested:
-                            self._add_log(training_id, project_id, "Training stopped by user")
-                            logger.info(f"[Training] Updated training status to 'stopped' for project {project_id}, training_id: {training_id}")
-                        else:
-                            logger.info(f"[Training] Updated training status to 'failed' for project {project_id}, training_id: {training_id}")
-                    except Exception as persist_error:
-                        logger.error(f"[Training] Failed to persist failed training record: {persist_error}", exc_info=True)
+                # Always clear active training marker and thread tracking (even if training succeeded)
+                # This ensures clean state for next training
+                if project_id in self.active_trainings and self.active_trainings[project_id] == training_id:
+                    del self.active_trainings[project_id]
+                
+                # Clear thread tracking
+                if training_id in self.training_threads:
+                    del self.training_threads[training_id]
+                if training_id in self.stop_events:
+                    del self.stop_events[training_id]
     
     def _add_log(self, training_id: str, project_id: str, message: str):
         """Add log to training record and write to database"""
@@ -882,22 +987,39 @@ class TrainingService:
                 # Check if thread is still running
                 thread = self.training_threads.get(training_id)
                 if thread is not None and not thread.is_alive():
-                    # Thread has ended but status is still running, indicates abnormal termination
+                    # Thread has ended but status is still running, indicates abnormal termination (likely OOM kill)
                     for record in self.training_records.get(project_id, []):
                         if record.get('training_id') == training_id and record.get('status') == 'running':
-                            # Update status to failed
+                            # Update status to failed with helpful error message
+                            batch = record.get('batch', 'unknown')
+                            imgsz = record.get('imgsz', 'unknown')
                             record['status'] = 'failed'
-                            record['error'] = "Training thread terminated unexpectedly"
+                            record['error'] = (
+                                "Training process was terminated unexpectedly (likely due to insufficient memory).\n\n"
+                                "Suggestions:\n"
+                                f"1. Reduce batch size (current: {batch})\n"
+                                f"2. Reduce image size (current: {imgsz})\n"
+                                "3. Use a smaller model size (e.g., 'n' instead of 's'/'m'/'l'/'x')\n"
+                                "4. Close other applications to free memory"
+                            )
                             record['end_time'] = datetime.now().isoformat()
                             try:
                                 self._persist_record(record)
-                                logger.warning(f"[Training] Detected terminated thread for training {training_id}, marked as failed")
+                                # Try to add log, but don't fail if it doesn't work
+                                try:
+                                    self._add_log(training_id, project_id, "Training terminated unexpectedly (likely OOM)")
+                                except Exception:
+                                    pass
+                                logger.warning(f"[Training] Detected terminated thread for training {training_id}, marked as failed (likely OOM)")
                             except Exception as e:
                                 logger.error(f"[Training] Failed to update terminated training status: {e}")
-                            # Clear active flag
-                            del self.active_trainings[project_id]
+                            # Clear active flag and thread tracking
+                            if project_id in self.active_trainings and self.active_trainings[project_id] == training_id:
+                                del self.active_trainings[project_id]
                             if training_id in self.training_threads:
                                 del self.training_threads[training_id]
+                            if training_id in self.stop_events:
+                                del self.stop_events[training_id]
                             break
                 
                 # Return record from memory to ensure logs and status are real-time

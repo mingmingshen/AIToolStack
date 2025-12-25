@@ -4,6 +4,8 @@ import { Dashboard } from './components/Dashboard';
 import { ProjectSelector } from './components/ProjectSelector';
 import { AnnotationWorkbench } from './components/AnnotationWorkbench';
 import { TrainingPanel } from './components/TrainingPanel';
+import { SystemSettings } from './components/SystemSettings';
+import { DeviceManager } from './components/DeviceManager';
 import { API_BASE_URL } from './config';
 import './App.css';
 
@@ -15,7 +17,7 @@ interface Project {
   updated_at?: string;
 }
 
-type MenuItem = 'dashboard' | 'projects' | 'models';
+type MenuItem = 'dashboard' | 'projects' | 'models' | 'device' | 'settings';
 
 function App() {
   const [activeMenu, setActiveMenu] = useState<MenuItem>('dashboard');
@@ -28,6 +30,58 @@ function App() {
   useEffect(() => {
     // Load project list
     fetchProjects();
+    
+    // Listen for navigation events
+    const handleNavigateToSettings = () => {
+      setActiveMenu('settings');
+      setSelectedProject(null);
+      setShowTrainingPanel(false);
+      setTrainingProjectId(null);
+      setTrainingInitialId(null);
+    };
+    
+    const handleNavigateToProjects = () => {
+      setActiveMenu('projects');
+      setSelectedProject(null);
+      setShowTrainingPanel(false);
+      setTrainingProjectId(null);
+      setTrainingInitialId(null);
+      fetchProjects();
+    };
+    
+    const handleNavigateToModels = () => {
+      setActiveMenu('models');
+      setSelectedProject(null);
+      setShowTrainingPanel(false);
+      setTrainingProjectId(null);
+      setTrainingInitialId(null);
+    };
+    
+    const handleNavigateToDevice = () => {
+      setActiveMenu('device');
+      setSelectedProject(null);
+      setShowTrainingPanel(false);
+      setTrainingProjectId(null);
+      setTrainingInitialId(null);
+    };
+    
+    const handleOpenProject = (e: CustomEvent) => {
+      setSelectedProject(e.detail);
+    };
+    
+    window.addEventListener('navigate-to-settings', handleNavigateToSettings);
+    window.addEventListener('navigate-to-projects', handleNavigateToProjects);
+    window.addEventListener('navigate-to-models', handleNavigateToModels);
+    window.addEventListener('navigate-to-device', handleNavigateToDevice);
+    window.addEventListener('open-project', handleOpenProject as EventListener);
+    
+    return () => {
+      window.removeEventListener('navigate-to-settings', handleNavigateToSettings);
+      window.removeEventListener('navigate-to-projects', handleNavigateToProjects);
+      window.removeEventListener('navigate-to-models', handleNavigateToModels);
+      window.removeEventListener('navigate-to-device', handleNavigateToDevice);
+      window.removeEventListener('open-project', handleOpenProject as EventListener);
+    };
   }, []);
 
   const fetchProjects = async () => {
@@ -130,6 +184,12 @@ function App() {
             onOpenTraining={handleOpenTrainingPanel}
           />
         );
+
+      case 'settings':
+        return <SystemSettings />;
+
+      case 'device':
+        return <DeviceManager />;
 
       default:
         return null;

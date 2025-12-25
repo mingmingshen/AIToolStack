@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File, Query, Form, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Union
 from pydantic import BaseModel
 import uuid
 import json
@@ -16,9 +16,19 @@ import subprocess
 import yaml
 import re
 
-from backend.models.database import get_db, Project, Image, Class, Annotation, TrainingRecord, ModelRegistry
+from backend.models.database import get_db, Project, Image, Class, Annotation, TrainingRecord, ModelRegistry, Device, DeviceReport
 from backend.services.websocket_manager import websocket_manager
+import logging
+
+logger = logging.getLogger(__name__)
 from backend.services.mqtt_service import mqtt_service
+from backend.services.mqtt_config_service import MQTTConfig, mqtt_config_service
+from backend.services.external_broker_service import (
+    external_broker_service,
+    ExternalBrokerCreate,
+    ExternalBrokerUpdate,
+    ExternalBrokerResponse,
+)
 from backend.services.training_service import training_service
 from backend.utils.yolo_export import YOLOExporter
 from backend.utils.dataset_import import DatasetImporter, generate_color
@@ -130,6 +140,86 @@ class ProjectResponse(BaseModel):
         )
 
 
+class DeviceOut(BaseModel):
+    """Device response model"""
+
+    id: str
+    name: Optional[str] = None
+    type: Optional[str] = None
+    model: Optional[str] = None
+    serial_number: Optional[str] = None
+    mac_address: Optional[str] = None
+    project_ids: Optional[List[str]] = None  # List of bound project IDs
+    status: Optional[str] = None
+    last_seen: Optional[datetime] = None
+    last_ip: Optional[str] = None
+    firmware_version: Optional[str] = None
+    hardware_version: Optional[str] = None
+    power_supply_type: Optional[str] = None
+    last_report: Optional[str] = None  # Raw JSON payload of last report
+    extra_info: Optional[str] = None  # JSON string for arbitrary metadata
+
+    class Config:
+        from_attributes = True
+
+    @classmethod
+    def from_orm_device(cls, device):
+        """Convert Device ORM object to DeviceOut, including project_ids"""
+        return cls(
+            id=device.id,
+            name=device.name,
+            type=device.type,
+            model=device.model,
+            serial_number=device.serial_number,
+            mac_address=device.mac_address,
+            project_ids=[p.id for p in device.projects] if device.projects else [],
+            status=device.status,
+            last_seen=device.last_seen,
+            last_ip=device.last_ip,
+            firmware_version=device.firmware_version,
+            hardware_version=device.hardware_version,
+            power_supply_type=device.power_supply_type,
+            last_report=device.last_report,
+            extra_info=device.extra_info,
+        )
+
+
+class DeviceBindProjectRequest(BaseModel):
+    """Request model for binding a device to a project."""
+
+    project_id: str  # Required: project ID to bind
+
+
+class DeviceUnbindProjectRequest(BaseModel):
+    """Request model for unbinding a device from a project."""
+
+    project_id: str  # Required: project ID to unbind
+
+
+class DeviceCreate(BaseModel):
+    """Request model for manually creating/registering a device.
+
+    This is mainly used to:
+    - Let the system generate a device_id automatically.
+    - Generate the corresponding MQTT topic for the user to configure on the device.
+    """
+
+    name: Optional[str] = None
+    type: Optional[str] = None
+    model: Optional[str] = None
+    serial_number: Optional[str] = None
+    mac_address: Optional[str] = None
+    # Optional: bind to one or more projects when creating
+    project_ids: Optional[List[str]] = None
+    extra_info: Optional[str] = None
+
+
+class DeviceWithTopic(DeviceOut):
+    """Device response model with MQTT topic information for configuration."""
+
+    uplink_topic: str  # MQTT uplink topic pattern for this device (device/{device_id}/uplink)
+
+
 class ModelInfo(BaseModel):
     """Global model info for model space"""
     # Basic identity
@@ -213,6 +303,46 @@ class AnnotationCreate(BaseModel):
 class AnnotationUpdate(BaseModel):
     data: dict = None
     class_id: int = None
+
+
+class MQTTConfigUpdate(BaseModel):
+    """Partial MQTT configuration update model for system settings API."""
+
+    enabled: Optional[bool] = None
+    external_enabled: Optional[bool] = None
+
+    # Built-in broker configuration
+    builtin_protocol: Optional[str] = None  # mqtt / mqtts
+    builtin_broker_host: Optional[str] = None  # Manual override for broker host IP (if None, auto-detect)
+    builtin_tcp_port: Optional[int] = None
+    builtin_tls_port: Optional[int] = None
+    builtin_allow_anonymous: Optional[bool] = None
+    builtin_username: Optional[str] = None  # Username for authentication when anonymous is disabled
+    builtin_password: Optional[str] = None  # Password for authentication when anonymous is disabled
+    builtin_max_connections: Optional[int] = None
+    builtin_keepalive_timeout: Optional[int] = None
+    builtin_qos: Optional[int] = None
+    builtin_keepalive: Optional[int] = None
+    builtin_tls_enabled: Optional[bool] = None
+    builtin_tls_ca_cert_path: Optional[str] = None
+    builtin_tls_client_cert_path: Optional[str] = None
+    builtin_tls_client_key_path: Optional[str] = None
+    builtin_tls_insecure_skip_verify: Optional[bool] = None
+    builtin_tls_require_client_cert: Optional[bool] = None  # Whether to require client certificates (mTLS)
+
+    # External broker configuration
+    external_protocol: Optional[str] = None  # mqtt / mqtts
+    external_host: Optional[str] = None
+    external_port: Optional[int] = None
+    external_username: Optional[str] = None
+    external_password: Optional[str] = None
+    external_qos: Optional[int] = None
+    external_keepalive: Optional[int] = None
+    external_tls_enabled: Optional[bool] = None
+    external_tls_ca_cert_path: Optional[str] = None
+    external_tls_client_cert_path: Optional[str] = None
+    external_tls_client_key_path: Optional[str] = None
+    external_tls_insecure_skip_verify: Optional[bool] = None
 
 
 # ========== Project Related ==========
@@ -3989,66 +4119,2732 @@ async def test_model_by_id(
 # ========== MQTT Service Management ==========
 @router.get("/mqtt/status")
 def get_mqtt_status(request: Request):
-    """Get MQTT service status"""
-    from backend.config import get_mqtt_broker_host, get_local_ip
-    
-    if settings.MQTT_USE_BUILTIN_BROKER:
-        # Use new function to get externally visible host IP (not container internal IP)
-        broker = get_mqtt_broker_host(request)
-        port = settings.MQTT_BUILTIN_PORT
-        broker_type = "builtin"
-    else:
-        broker = settings.MQTT_BROKER
-        port = settings.MQTT_PORT
-        broker_type = "external"
-    
-    # Get server IP (for display in project information)
-    # get_mqtt_broker_host already contains logic to get from request headers, use it directly here
+    """Get MQTT configuration and runtime status"""
+    from backend.config import get_mqtt_broker_host
+
+    cfg: MQTTConfig = mqtt_config_service.load_config()
+
+    # Server IP (from request headers when possible, for device bootstrap)
     server_ip = get_mqtt_broker_host(request)
     
-    # Get detailed status from service if enabled
+    # Detailed status from MQTTService
     service_status = {}
-    if settings.MQTT_ENABLED:
+    if cfg.enabled:
         try:
             service_status = mqtt_service.get_status()
         except Exception as e:
             logger.warning(f"Failed to get MQTT service status: {e}")
     
+    # Extract per-broker runtime info (if available)
+    brokers_info = service_status.get("brokers") or []
+    builtin_connected = any(
+        b.get("type") == "builtin" and b.get("connected") for b in brokers_info
+    )
+    external_connected = any(
+        b.get("type") == "external" and b.get("connected") for b in brokers_info
+    )
+    
+    # If no broker info available but service is enabled, check if builtin broker is running
+    # Also check if broker is running even if we have broker info (connection might be in progress)
+    if cfg.enabled:
+        try:
+            from backend.services.mqtt_broker import builtin_mqtt_broker
+            # If builtin broker is running, consider it connected or at least available
+            # (client connection is async and may take time after restart)
+            if builtin_mqtt_broker.is_running:
+                # If we have broker info, use it; otherwise assume connected
+                # Don't override actual connection status - if broker info shows disconnected,
+                # respect that (connection may have failed due to auth issues, etc.)
+                # Only use broker running status as fallback when we have no broker info at all
+                if not brokers_info:
+                    builtin_connected = True
+                # If we have broker info, use the actual connection status from it
+        except Exception:
+            pass
+
+    # Built-in broker status (always available when MQTT is enabled)
+    builtin_port = (
+        (cfg.builtin_tls_port if cfg.builtin_protocol == "mqtts" else cfg.builtin_tcp_port)
+        or settings.MQTT_BUILTIN_PORT
+    )
+    builtin_status = {
+        "enabled": bool(cfg.enabled),
+        "host": server_ip,
+        "port": builtin_port,
+        "protocol": cfg.builtin_protocol,
+        "connected": bool(cfg.enabled and builtin_connected),
+    }
+
+    # External broker status (optional, only when configured)
+    external_status = {
+        "enabled": bool(cfg.enabled and cfg.external_enabled),
+        "configured": bool(cfg.external_host or cfg.external_port),
+        "host": cfg.external_host,
+        "port": cfg.external_port,
+        "protocol": cfg.external_protocol,
+        "connected": bool(cfg.enabled and cfg.external_enabled and external_connected),
+    }
+    
     base_status = {
-        "enabled": settings.MQTT_ENABLED,
-        "use_builtin": settings.MQTT_USE_BUILTIN_BROKER if settings.MQTT_ENABLED else False,
-        "broker_type": broker_type if settings.MQTT_ENABLED else None,
-        "connected": mqtt_service.is_connected if settings.MQTT_ENABLED else False,
-        "broker": broker if settings.MQTT_ENABLED else None,
-        "port": port if settings.MQTT_ENABLED else None,
-        "topic": settings.MQTT_UPLOAD_TOPIC if settings.MQTT_ENABLED else None,
-        "server_ip": server_ip,  # Server IP address
-        "server_port": settings.PORT  # Server port
+        "enabled": cfg.enabled,
+        "connected": mqtt_service.is_connected if cfg.enabled else False,
+        "broker": f"{mqtt_service.broker_host}:{mqtt_service.broker_port}"
+        if cfg.enabled and mqtt_service.broker_host
+        else None,
+        "upload_topic": settings.MQTT_UPLOAD_TOPIC if cfg.enabled else None,
+        "response_topic_prefix": settings.MQTT_RESPONSE_TOPIC_PREFIX if cfg.enabled else None,
+        "server_ip": server_ip,
+        "server_port": settings.PORT,
+        # New: per-broker status for UI
+        "builtin": builtin_status,
+        "external": external_status,
     }
     
     # Merge service status details
     if service_status:
-        base_status.update({
+        base_status.update(
+            {
             "connection_count": service_status.get("connection_count", 0),
             "disconnection_count": service_status.get("disconnection_count", 0),
             "message_count": service_status.get("message_count", 0),
             "last_connect_time": service_status.get("last_connect_time"),
             "last_disconnect_time": service_status.get("last_disconnect_time"),
             "last_message_time": service_status.get("last_message_time"),
-            "recent_errors": service_status.get("recent_errors", [])
-        })
+                "recent_errors": service_status.get("recent_errors", []),
+            }
+        )
     
     return base_status
+
+
+@router.get("/system/mqtt/config", response_model=MQTTConfig)
+def get_mqtt_config():
+    """Get current MQTT configuration (for system settings UI)."""
+    return mqtt_config_service.load_config()
+
+
+@router.put("/system/mqtt/config", response_model=MQTTConfig)
+def update_mqtt_config(update: MQTTConfigUpdate):
+    """
+    Update MQTT configuration and apply it at runtime.
+    
+    Design Philosophy:
+    - This endpoint manages Broker configuration (Mosquitto settings)
+    - Client connection (AIToolStack) automatically infers settings from broker config
+    - Changes to broker config (protocol, TLS, auth) automatically affect client connection
+    """
+    current = mqtt_config_service.load_config()
+    # Use model_dump for Pydantic V2 compatibility
+    if hasattr(current, 'model_dump'):
+        data = current.model_dump()
+    else:
+        data = current.dict()
+
+    # Apply partial updates - handle both MQTTConfigUpdate and full MQTTConfig objects
+    # Use model_dump for Pydantic V2 compatibility
+    if hasattr(update, 'model_dump'):
+        update_dict = update.model_dump(exclude_unset=True, exclude_none=False)
+        # Get valid fields from MQTTConfigUpdate model (Pydantic V2 compatible)
+        valid_fields = set(MQTTConfigUpdate.model_fields.keys())
+    else:
+        update_dict = update.dict(exclude_unset=True, exclude_none=False)
+        # Get valid fields from MQTTConfigUpdate model (Pydantic V1 compatible)
+        valid_fields = set(MQTTConfigUpdate.__fields__.keys())
+    
+    for field, value in update_dict.items():
+        # Only update fields that are in MQTTConfigUpdate
+        if field in valid_fields:
+            # Handle empty strings as None for optional string fields
+            if isinstance(value, str) and value == "":
+                # Convert empty string to None for optional fields
+                data[field] = None
+            else:
+                data[field] = value
+
+    new_cfg = MQTTConfig(**data)
+
+    # Basic validation and normalization
+    if new_cfg.builtin_protocol not in ("mqtt", "mqtts"):
+        raise HTTPException(status_code=400, detail="Invalid builtin_protocol, must be 'mqtt' or 'mqtts'")
+    if new_cfg.external_protocol not in ("mqtt", "mqtts"):
+        raise HTTPException(status_code=400, detail="Invalid external_protocol, must be 'mqtt' or 'mqtts'")
+    
+    # SECURITY VALIDATION: Prevent insecure configuration
+    # When allow_anonymous=true, builtin_tls_enabled=true, and builtin_tls_require_client_cert=false,
+    # clients with wrong CA certificates can still connect. This is a security vulnerability.
+    # We must either:
+    # 1. Force require_certificate=true (but this prevents anonymous connections without certificates)
+    # 2. Reject this configuration and require user to enable mTLS or disable anonymous access
+    # We choose option 1: Force require_certificate=true when allow_anonymous=true and TLS is enabled
+    # This means anonymous connections without certificates will be rejected (security trade-off)
+    if new_cfg.builtin_allow_anonymous and new_cfg.builtin_tls_enabled and not new_cfg.builtin_tls_require_client_cert:
+        logger.warning(
+            "SECURITY: Detected insecure configuration: allow_anonymous=true, TLS enabled, but mTLS disabled. "
+            "This allows clients with wrong CA certificates to connect. "
+            "Forcing require_certificate=true to enforce CA validation. "
+            "Note: Anonymous connections without certificates will be rejected."
+        )
+    
+    # Note: When anonymous is disabled, FileAuthPlugin will be enabled.
+    # If username/password are not provided, an invalid user entry will be created
+    # to ensure all connections are rejected until valid credentials are configured.
+    # This is handled in mqtt_broker.py, so we don't need to enforce it here.
+
+    # Persist configuration
+    saved = mqtt_config_service.save_config(new_cfg)
+
+    # When using external Mosquitto instead of Python built-in broker,
+    # enforce username/password requirement when anonymous access is disabled,
+    # and synchronize Mosquitto passwordfile & allow_anonymous so that clients can authenticate.
+    from backend.config import settings as app_settings
+    if not app_settings.MQTT_USE_BUILTIN_BROKER:
+        # If anonymous is disabled, username/password must be provided
+        if not saved.builtin_allow_anonymous:
+            if not saved.builtin_username or not saved.builtin_password:
+                raise HTTPException(
+                    status_code=400,
+                    detail="When disabling anonymous access, builtin_username and builtin_password are required.",
+                )
+
+            # Try to update Mosquitto passwordfile via mosquitto_passwd.
+            # This requires:
+            # - camthink service mounting ./mosquitto/config:/mosquitto/config
+            # - mosquitto-clients installed in the runtime image
+            try:
+                import subprocess
+                from pathlib import Path
+
+                passwordfile = Path("/mosquitto/config/passwordfile")
+                # Ensure passwordfile exists so mosquitto can start even before any user is created
+                if not passwordfile.exists():
+                    passwordfile.parent.mkdir(parents=True, exist_ok=True)
+                    passwordfile.touch()
+                    # Set secure permissions (read/write for owner only)
+                    os.chmod(passwordfile, 0o600)
+
+                # Use mosquitto_passwd to create or update the user.
+                # Do NOT use -c here to avoid wiping other possible users.
+                # Note: If user already exists, mosquitto_passwd -b will update the password
+                cmd = [
+                    "mosquitto_passwd",
+                    "-b",
+                    str(passwordfile),
+                    saved.builtin_username,
+                    saved.builtin_password,
+                ]
+                result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+                # Ensure secure permissions after updating password file
+                os.chmod(passwordfile, 0o600)
+                logger.info(f"Successfully updated Mosquitto passwordfile: user '{saved.builtin_username}' added/updated")
+                
+                # Verify password file was updated correctly
+                if passwordfile.exists():
+                    with open(passwordfile, 'r', encoding='utf-8') as f:
+                        users = [line.split(':')[0] for line in f if line.strip() and ':' in line]
+                        if saved.builtin_username in users:
+                            logger.info(f"Verified: user '{saved.builtin_username}' exists in password file")
+                        else:
+                            logger.error(f"WARNING: user '{saved.builtin_username}' not found in password file after update!")
+                
+                # Restart Mosquitto container to ensure password file is reloaded
+                # Note: Some versions of Mosquitto may not properly reload password file on SIGHUP
+                # Restarting the container is more reliable for ensuring password file changes take effect
+                try:
+                    result = subprocess.run(
+                        ["docker", "restart", "camthink-mosquitto"],
+                        check=True,
+                        timeout=10,
+                        capture_output=True,
+                        text=True,
+                    )
+                    logger.info("Restarted Mosquitto container to reload password file")
+                    # Wait a moment for Mosquitto to fully restart
+                    import time
+                    time.sleep(2)
+                except Exception as e:
+                    logger.warning(f"Failed to restart Mosquitto container after password file update: {e}")
+                    # If restart fails, try SIGHUP as fallback
+                    try:
+                        subprocess.run(
+                            ["docker", "kill", "-s", "HUP", "camthink-mosquitto"],
+                            check=True,
+                            timeout=5,
+                            capture_output=True,
+                            text=True,
+                        )
+                        logger.info("Sent SIGHUP to Mosquitto as fallback (restart failed)")
+                    except Exception as sighup_e:
+                        logger.error(f"Both restart and SIGHUP failed: {e}, {sighup_e}")
+                        # The password file is updated, and Mosquitto will use it on next restart
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Failed to update Mosquitto passwordfile: {e.stderr if hasattr(e, 'stderr') and e.stderr else str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to update Mosquitto password file: {e.stderr if hasattr(e, 'stderr') and e.stderr else str(e)}"
+                )
+            except Exception as e:
+                logger.error(f"Failed to update Mosquitto passwordfile: {e}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to update Mosquitto password file: {str(e)}"
+                )
+
+        # Broker Configuration Management: Update Mosquitto broker settings
+        # - allow_anonymous: Controls whether external devices can connect anonymously
+        # - require_certificate: For MQTTS, enforces client certificate verification (mTLS)
+        # Note: Client connection (AIToolStack) automatically matches these broker settings
+        mosquitto_restarted = False  # Track if Mosquitto was restarted (for client reconnection logic)
+        try:
+            from pathlib import Path
+            import re
+            import subprocess
+
+            conf_path = Path("/mosquitto/config/mosquitto.conf")
+            if conf_path.exists():
+                conf_text = conf_path.read_text()
+                desired = "true" if saved.builtin_allow_anonymous else "false"
+                
+                # Check current allow_anonymous value in config file
+                current_allow_anonymous = None
+                allow_anonymous_match = re.search(r"^allow_anonymous\s+(true|false)\s*$", conf_text, flags=re.MULTILINE)
+                if allow_anonymous_match:
+                    current_allow_anonymous = allow_anonymous_match.group(1)
+                
+                # Only update if value actually changed
+                allow_anonymous_changed = current_allow_anonymous != desired
+                
+                if allow_anonymous_changed:
+                    # Replace or insert allow_anonymous line
+                    if allow_anonymous_match:
+                        new_text = re.sub(
+                            r"^allow_anonymous\s+(true|false)\s*$",
+                            f"allow_anonymous {desired}",
+                            conf_text,
+                            flags=re.MULTILINE,
+                        )
+                    else:
+                        # If no line exists, append one after listener block or at end of file
+                        new_text = conf_text.rstrip() + f"\nallow_anonymous {desired}\n"
+                else:
+                    # No change needed, keep original text
+                    new_text = conf_text
+
+                # Broker Configuration: Update require_certificate based on TLS enabled status and user configuration
+                # When builtin_tls_enabled is True, set require_certificate based on builtin_tls_require_client_cert:
+                # 
+                # Mode 1: One-way TLS (builtin_tls_require_client_cert = False)
+                #   - require_certificate = false
+                #   - Clients can connect WITHOUT certificates
+                #   - Authentication: 
+                #     * If allow_anonymous=true: Clients can connect anonymously (no username/password needed)
+                #     * If allow_anonymous=false: Clients must provide username/password 
+                #   - Clients can OPTIONALLY provide certificates
+                #   - If clients provide certificates, Mosquitto validates them against cafile
+                #   - BUT: If certificate validation fails (wrong CA), connection is NOT rejected
+                #   - Instead, client can authenticate using username/password (if allow_anonymous=false)
+                #     or connect anonymously (if allow_anonymous=true)
+                #   - This is the standard one-way TLS behavior (server cert verification only)
+                #   - Client requirements: CA certificate (to verify server cert)
+                #   - Client does NOT need: client certificate, client key
+                #   - NOTE: This mode allows anonymous TLS connections when allow_anonymous=true
+                #
+                # Mode 2: mTLS / Two-way TLS (builtin_tls_require_client_cert = True)
+                #   - require_certificate = true
+                #   - Clients MUST provide certificates
+                #   - Certificates MUST be signed by the CA specified in cafile
+                #   - If certificate validation fails (wrong CA), connection is REJECTED
+                #   - use_identity_as_username = true (CN from cert is used as username)
+                #   - Only CNs in password file can connect
+                #   - This enforces strict certificate-based authentication
+                #   - Client requirements: CA certificate, client certificate, client key
+                #
+                # Note: builtin_protocol only affects which port clients connect to by default,
+                # not the broker's TLS configuration (require_certificate is independent of protocol)
+                if saved.builtin_tls_enabled:
+                    # Find the listener 8883 block and update require_certificate
+                    # Pattern: match from "listener 8883" to the end of that listener block (before next listener or end of file)
+                    # Split into lines for processing
+                    lines = new_text.split('\n')
+                    listener_8883_start = -1
+                    listener_8883_end = -1
+                    
+                    # Find listener 8883 block
+                    for i, line in enumerate(lines):
+                        stripped = line.strip()
+                        if not stripped or stripped.startswith('#'):
+                            continue
+                        if re.match(r'^listener\s+8883', stripped):
+                            listener_8883_start = i
+                        elif listener_8883_start >= 0:
+                            # Check if this is the start of a new listener block or a global config directive
+                            # Listener blocks end when we encounter another listener or a global config (like persistence, log_dest, etc.)
+                            if re.match(r'^listener\s+', stripped):
+                                # Another listener block starts
+                                listener_8883_end = i
+                                break
+                            elif re.match(r'^(persistence|log_dest|log_timestamp|password_file|allow_anonymous)', stripped):
+                                # Global config directive (not part of listener block)
+                                listener_8883_end = i
+                                break
+                    
+                    if listener_8883_start >= 0:
+                        if listener_8883_end < 0:
+                            listener_8883_end = len(lines)
+                        
+                        logger.debug(f"Found listener 8883 block: start={listener_8883_start}, end={listener_8883_end}")
+                        
+                        # SECURITY FIX: When allow_anonymous=true and TLS is enabled, we must enforce CA validation
+                        # If require_certificate=false, clients with wrong CA certificates can still connect
+                        # This is a security vulnerability. We need to force require_certificate=true when
+                        # allow_anonymous=true to ensure only clients with valid CA-signed certificates can connect.
+                        # However, we still allow clients without certificates if allow_anonymous=true and
+                        # require_certificate=false (they can connect anonymously).
+                        # 
+                        # The solution: When allow_anonymous=true and builtin_tls_require_client_cert=false,
+                        # we still set require_certificate=true but use a special configuration:
+                        # - require_certificate=true: Forces CA validation for any provided certificates
+                        # - use_identity_as_username=true: Uses CN from certificate as username
+                        # - But we need to allow anonymous connections too, so we can't use use_identity_as_username
+                        #
+                        # Actually, Mosquitto doesn't support this directly. The best we can do is:
+                        # - If allow_anonymous=true and builtin_tls_require_client_cert=false:
+                        #   * Set require_certificate=true (force CA validation)
+                        #   * Set use_identity_as_username=true (use CN as username)
+                        #   * This means clients MUST provide certificates signed by our CA
+                        #   * Anonymous connections are NOT allowed in this case (security trade-off)
+                        #
+                        # Alternative: Warn user that allow_anonymous=true with require_certificate=false is insecure
+                        # and recommend enabling mTLS or disabling anonymous access.
+                        
+                        # Determine require_certificate value based on user configuration
+                        # SECURITY FIX: When allow_anonymous=true and mTLS is disabled, we must enforce CA validation
+                        # to prevent clients with wrong CA certificates from connecting.
+                        # We force require_certificate=true in this case, which means:
+                        # - Clients MUST provide certificates signed by our CA
+                        # - Anonymous connections without certificates will be rejected (security trade-off)
+                        # - This is necessary because Mosquitto doesn't validate CA for optional certificates
+                        #   when require_certificate=false
+                        if saved.builtin_allow_anonymous and not saved.builtin_tls_require_client_cert:
+                            # Force require_certificate=true to enforce CA validation
+                            require_cert_value = "true"
+                            logger.warning(
+                                f"SECURITY: allow_anonymous=true with mTLS disabled is insecure. "
+                                f"Force setting require_certificate=true to enforce CA validation. "
+                                f"Clients must provide certificates signed by our CA. "
+                                f"Anonymous connections without certificates will be rejected."
+                            )
+                        else:
+                            require_cert_value = "true" if saved.builtin_tls_require_client_cert else "false"
+                        logger.info(f"Setting require_certificate to {require_cert_value} (builtin_tls_require_client_cert={saved.builtin_tls_require_client_cert}, allow_anonymous={saved.builtin_allow_anonymous})")
+                        
+                        # Check if require_certificate already exists in this block
+                        require_cert_found = False
+                        for i in range(listener_8883_start, listener_8883_end):
+                            line_stripped = lines[i].strip()
+                            # Match require_certificate line (with or without leading whitespace)
+                            if re.match(r'^\s*require_certificate\s+', lines[i]) or line_stripped.startswith('require_certificate'):
+                                # Replace existing require_certificate line
+                                lines[i] = re.sub(
+                                    r'^\s*require_certificate\s+.*',
+                                    f'require_certificate {require_cert_value}',
+                                    lines[i]
+                                )
+                                require_cert_found = True
+                                logger.info(f"Updated existing require_certificate line at line {i+1} to {require_cert_value}")
+                                break
+                        
+                        if not require_cert_found:
+                            # Insert require_certificate after keyfile line (last TLS config line)
+                            insert_pos = listener_8883_end
+                            # Try to find keyfile line (usually the last TLS config line)
+                            for i in range(listener_8883_start, listener_8883_end):
+                                if re.match(r'^\s*keyfile\s+', lines[i]):
+                                    insert_pos = i + 1
+                                    break
+                            lines.insert(insert_pos, f'require_certificate {require_cert_value}')
+                            logger.info(f"Inserted require_certificate={require_cert_value} at line {insert_pos+1}")
+                        
+                        # If mTLS is enabled OR if allow_anonymous=true with mTLS disabled (security fix),
+                        # add use_identity_as_username to enforce CN validation
+                        # This ensures only certificates with CN matching a user in password file can connect
+                        # SECURITY: When allow_anonymous=true and mTLS is disabled, we force require_certificate=true
+                        # and use_identity_as_username=true to enforce CA validation
+                        if saved.builtin_tls_require_client_cert or (saved.builtin_allow_anonymous and not saved.builtin_tls_require_client_cert):
+                            # Find existing use_identity_as_username line
+                            use_identity_found = False
+                            use_identity_line_index = -1
+                            for i in range(listener_8883_start, listener_8883_end):
+                                if re.match(r'^\s*use_identity_as_username\s+', lines[i]):
+                                    use_identity_line_index = i
+                                    use_identity_found = True
+                                    break
+                            
+                            if not use_identity_found:
+                                # Insert use_identity_as_username after require_certificate
+                                insert_pos = listener_8883_end
+                                for i in range(listener_8883_start, listener_8883_end):
+                                    if re.match(r'^\s*require_certificate\s+', lines[i]):
+                                        insert_pos = i + 1
+                                        break
+                                lines.insert(insert_pos, 'use_identity_as_username true')
+                                logger.info(f"Inserted use_identity_as_username=true at line {insert_pos+1} (enforces CN validation)")
+                            else:
+                                # Ensure it's set to true
+                                lines[use_identity_line_index] = re.sub(
+                                    r'^\s*use_identity_as_username\s+.*',
+                                    'use_identity_as_username true',
+                                    lines[use_identity_line_index]
+                                )
+                                logger.info(f"Updated use_identity_as_username=true at line {use_identity_line_index+1}")
+                            
+                            # SECURITY: When allow_anonymous=true and mTLS is disabled, we force require_certificate=true
+                            # to enforce CA validation. This means clients MUST provide certificates signed by our CA.
+                            # We need to sync all device certificate CNs to password file so they can connect.
+                            if saved.builtin_allow_anonymous and not saved.builtin_tls_require_client_cert:
+                                # Sync all device certificate CNs to password file
+                                # This ensures any client certificate signed by our CA can connect
+                                try:
+                                    certs_dir = Path("/mosquitto/config/certs")
+                                    if certs_dir.exists():
+                                        import re
+                                        pattern = re.compile(r'^client-(.+)\.crt$')
+                                        synced_count = 0
+                                        for cert_file in certs_dir.glob("client-*.crt"):
+                                            match = pattern.match(cert_file.name)
+                                            if match:
+                                                cn = match.group(1)
+                                                try:
+                                                    _add_device_to_password_file(cn)
+                                                    synced_count += 1
+                                                except Exception as e:
+                                                    logger.warning(f"Failed to add device CN '{cn}' to password file: {e}")
+                                        if synced_count > 0:
+                                            logger.info(f"Synced {synced_count} device certificate CN(s) to password file for CA validation enforcement")
+                                except Exception as e:
+                                    logger.warning(f"Failed to sync device certificates to password file: {e}")
+                            
+                            # Manage crlfile configuration based on CRL file validity
+                            # Only add crlfile if CRL file exists and is valid (non-empty and properly formatted)
+                            crl_file = Path("/mosquitto/config/certs/revoked.crl")
+                            crl_is_valid = _is_valid_crl_file(crl_file)
+                            
+                            # Find existing crlfile line
+                            crlfile_line_index = -1
+                            for i in range(listener_8883_start, listener_8883_end):
+                                if re.match(r'^\s*crlfile\s+', lines[i]):
+                                    crlfile_line_index = i
+                                    break
+                            
+                            if crl_is_valid:
+                                # CRL file is valid, ensure crlfile is configured
+                                if crlfile_line_index >= 0:
+                                    # Update existing crlfile line
+                                    lines[crlfile_line_index] = re.sub(
+                                        r'^\s*crlfile\s+.*',
+                                        f'crlfile {crl_file}',
+                                        lines[crlfile_line_index]
+                                    )
+                                    logger.info(f"Updated crlfile line at line {crlfile_line_index+1}")
+                                else:
+                                    # Insert crlfile after use_identity_as_username or require_certificate
+                                    insert_pos = listener_8883_end
+                                    for i in range(listener_8883_start, listener_8883_end):
+                                        if re.match(r'^\s*use_identity_as_username\s+', lines[i]):
+                                            insert_pos = i + 1
+                                            break
+                                        elif re.match(r'^\s*require_certificate\s+', lines[i]):
+                                            insert_pos = i + 1
+                                    lines.insert(insert_pos, f'crlfile {crl_file}')
+                                    logger.info(f"Inserted crlfile at line {insert_pos+1}")
+                            else:
+                                # CRL file is invalid or doesn't exist, remove crlfile configuration if present
+                                if crlfile_line_index >= 0:
+                                    lines.pop(crlfile_line_index)
+                                    logger.info("Removed crlfile configuration (CRL file is invalid or empty)")
+                        else:
+                            # If mTLS is disabled AND allow_anonymous=false, remove use_identity_as_username
+                            # to allow username/password authentication
+                            # When use_identity_as_username is true, Mosquitto expects username from certificate CN
+                            # If client doesn't provide certificate, connection will be rejected
+                            # So we must remove it when mTLS is disabled and allow_anonymous=false to allow username/password connections
+                            
+                            # Find existing use_identity_as_username line
+                            use_identity_line_index = -1
+                            for i in range(listener_8883_start, listener_8883_end):
+                                if re.match(r'^\s*use_identity_as_username\s+', lines[i]):
+                                    use_identity_line_index = i
+                                    break
+                            
+                            if use_identity_line_index >= 0:
+                                # Remove use_identity_as_username when mTLS is disabled and allow_anonymous=false
+                                lines.pop(use_identity_line_index)
+                                logger.info(f"Removed use_identity_as_username at line {use_identity_line_index+1} (mTLS disabled and allow_anonymous=false, allowing username/password auth)")
+                            
+                            # IMPORTANT: When mTLS is disabled (one-way TLS) and allow_anonymous=false:
+                            # - require_certificate = false
+                            # - Clients can connect WITHOUT certificates using username/password
+                            # - Clients can OPTIONALLY provide certificates
+                            # - If clients provide certificates, Mosquitto validates them against cafile
+                            # - However, if certificate validation fails (wrong CA), Mosquitto will NOT reject the connection
+                            #   Instead, it will allow the client to authenticate using username/password
+                            # - This is the expected behavior for one-way TLS (server cert verification only)
+                            # - Note: We cannot use use_identity_as_username=true here because it would prevent
+                            #   clients without certificates from connecting (they need username/password auth)
+                            #
+                            # SECURITY NOTE: When allow_anonymous=true and mTLS is disabled, we force require_certificate=true
+                            # and use_identity_as_username=true to prevent clients with wrong CA certificates from connecting.
+                            # This means anonymous connections without certificates are NOT allowed in this case (security trade-off).
+                        
+                        new_text = '\n'.join(lines)
+                        
+                        # After updating require_certificate, manage crlfile based on CRL file validity
+                        # This ensures that if CRL file is invalid, crlfile is removed from config
+                        # Only write if require_certificate actually changed (not just format differences)
+                        # Compare normalized content (ignore whitespace differences)
+                        if new_text.strip() != conf_text.strip():
+                            conf_path.write_text(new_text)
+                            # Re-read to get the updated content for crlfile management
+                            conf_text = conf_path.read_text()
+                            lines = conf_text.split('\n')
+                            # Re-find listener 8883 block after write
+                            listener_8883_start = -1
+                            listener_8883_end = -1
+                            for i, line in enumerate(lines):
+                                stripped = line.strip()
+                                if not stripped or stripped.startswith('#'):
+                                    continue
+                                if re.match(r'^listener\s+8883', stripped):
+                                    listener_8883_start = i
+                                elif listener_8883_start >= 0:
+                                    if re.match(r'^listener\s+', stripped):
+                                        listener_8883_end = i
+                                        break
+                                    elif re.match(r'^(persistence|log_dest|log_timestamp|password_file|allow_anonymous)', stripped):
+                                        listener_8883_end = i
+                                        break
+                            if listener_8883_end < 0:
+                                listener_8883_end = len(lines)
+                        
+                        # Manage crlfile configuration based on CRL file validity
+                        if saved.builtin_tls_require_client_cert:
+                            _ensure_crlfile_in_mosquitto_conf()
+                        tls_mode = "mTLS (client cert required)" if saved.builtin_tls_require_client_cert else "one-way TLS (server cert only)"
+                        logger.info(f"Updated require_certificate={require_cert_value} for listener 8883 ({tls_mode})")
+                    else:
+                        logger.warning("listener 8883 block not found in mosquitto.conf, cannot set require_certificate")
+                else:
+                    # If TLS is disabled, set require_certificate to false for listener 8883 (if it exists)
+                    # This ensures that if TLS is disabled, mTLS is also disabled
+                    if current.builtin_tls_enabled and not saved.builtin_tls_enabled:
+                        # TLS was disabled, set require_certificate to false for listener 8883
+                        lines = new_text.split('\n')
+                        in_listener_8883 = False
+                        listener_8883_start = -1
+                        listener_8883_end = -1
+                        
+                        for i, line in enumerate(lines):
+                            if re.match(r'^\s*listener\s+8883', line):
+                                in_listener_8883 = True
+                                listener_8883_start = i
+                            elif in_listener_8883 and (re.match(r'^\s*listener\s+', line) or re.match(r'^\s*[a-zA-Z_]', line) and not line.strip().startswith('#')):
+                                listener_8883_end = i
+                                break
+                        
+                        if listener_8883_start >= 0:
+                            if listener_8883_end < 0:
+                                listener_8883_end = len(lines)
+                            
+                            for i in range(listener_8883_start, listener_8883_end):
+                                if re.match(r'^\s*require_certificate\s+', lines[i]):
+                                    lines[i] = 'require_certificate false'
+                                    break
+                            
+                            new_text = '\n'.join(lines)
+
+                # Only consider config changed if content actually differs (ignoring whitespace)
+                # This prevents unnecessary SIGHUP/restart when only format changes
+                config_changed = new_text.strip() != conf_text.strip()
+                
+                # Check if require_certificate actually changed by reading current value from config
+                require_cert_changed = False
+                if saved.builtin_tls_enabled:
+                    # Read current require_certificate value from config file
+                    current_require_cert = None
+                    if conf_path.exists():
+                        current_conf_lines = conf_path.read_text().split('\n')
+                        in_listener_8883 = False
+                        for line in current_conf_lines:
+                            stripped = line.strip()
+                            if re.match(r'^listener\s+8883', stripped):
+                                in_listener_8883 = True
+                            elif in_listener_8883:
+                                if re.match(r'^\s*require_certificate\s+', line):
+                                    current_require_cert = stripped.split()[1] if len(stripped.split()) > 1 else None
+                                    break
+                                elif re.match(r'^(listener|persistence|log_dest|log_timestamp|password_file|allow_anonymous)', stripped):
+                                    break
+                    
+                    # Compare with new value
+                    new_require_cert = "true" if saved.builtin_tls_require_client_cert else "false"
+                    if current_require_cert != new_require_cert:
+                        require_cert_changed = True
+                        logger.info(f"require_certificate changed: {current_require_cert} -> {new_require_cert}")
+                
+                # Also check if TLS enabled status changed (affects require_certificate)
+                tls_enabled_changed = current.builtin_tls_enabled != saved.builtin_tls_enabled
+                mtls_status_changed = current.builtin_tls_require_client_cert != saved.builtin_tls_require_client_cert
+                
+                if config_changed:
+                    conf_path.write_text(new_text)
+                    require_cert_str = f"{saved.builtin_tls_require_client_cert}" if saved.builtin_tls_enabled else 'false'
+                    logger.info(f"Updated mosquitto.conf: allow_anonymous={desired}, require_certificate={require_cert_str}")
+                    
+                    # CRITICAL SECURITY CHECK: Verify that require_certificate was correctly set
+                    # Read back the config to ensure it was written correctly
+                    verify_conf = conf_path.read_text()
+                    if saved.builtin_tls_enabled and saved.builtin_tls_require_client_cert:
+                        # When mTLS is enabled, require_certificate MUST be true
+                        # Check if require_certificate true exists in listener 8883 block
+                        in_listener_8883 = False
+                        found_require_cert_true = False
+                        for line in verify_conf.split('\n'):
+                            stripped = line.strip()
+                            if re.match(r'^listener\s+8883', stripped):
+                                in_listener_8883 = True
+                            elif in_listener_8883:
+                                if re.match(r'^\s*require_certificate\s+true', stripped):
+                                    found_require_cert_true = True
+                                    break
+                                elif re.match(r'^(listener|persistence|log_dest|log_timestamp|password_file|allow_anonymous)', stripped):
+                                    break
+                        
+                        if not found_require_cert_true:
+                            logger.error("CRITICAL: require_certificate was not set to true when mTLS is enabled!")
+                            raise RuntimeError("Failed to set require_certificate=true in mosquitto.conf. This is a security issue.")
+                        logger.info("✓ Verified: require_certificate=true is correctly set in mosquitto.conf")
+                
+                # After writing config, manage crlfile based on CRL file validity
+                # This ensures that if CRL file is invalid, crlfile is removed from config
+                if saved.builtin_tls_enabled and saved.builtin_tls_require_client_cert:
+                    _ensure_crlfile_in_mosquitto_conf()
+                    
+                    # CRITICAL: When mTLS is enabled, ensure all existing device certificates are in password file
+                    # This is required because use_identity_as_username=true means only users in password file can connect
+                    # Always sync device certificates to password file when mTLS is enabled (not just on status change)
+                    # This ensures that even if certificates were generated before mTLS was enabled, they are still added
+                    logger.info("mTLS is enabled, ensuring all existing device certificates are in password file...")
+                    try:
+                        # Get all device certificates
+                        certs_dir = Path("/mosquitto/config/certs")
+                        if certs_dir.exists():
+                            import re
+                            pattern = re.compile(r'^client-(.+)\.crt$')
+                            device_certs = []
+                            for cert_file in certs_dir.glob("client-*.crt"):
+                                match = pattern.match(cert_file.name)
+                                if match:
+                                    cn = match.group(1)
+                                    device_certs.append(cn)
+                            
+                            # Add each device CN to password file
+                            added_count = 0
+                            for cn in device_certs:
+                                try:
+                                    _add_device_to_password_file(cn)
+                                    added_count += 1
+                                    logger.info(f"Added device certificate CN '{cn}' to password file")
+                                except Exception as e:
+                                    logger.warning(f"Failed to add device CN '{cn}' to password file: {e}")
+                            
+                            if device_certs:
+                                logger.info(f"Synced {added_count}/{len(device_certs)} device certificate(s) to password file")
+                            else:
+                                logger.info("No device certificates found to sync to password file")
+                    except Exception as e:
+                        logger.warning(f"Failed to sync device certificates to password file: {e}. Some devices may not be able to connect.")
+                
+                # CRITICAL: require_certificate cannot be reloaded via SIGHUP, must restart container
+                # Only restart if require_certificate actually changed or TLS/mTLS status changed
+                # allow_anonymous can be reloaded via SIGHUP without restart
+                need_restart = (
+                    require_cert_changed or
+                    tls_enabled_changed or
+                    (saved.builtin_tls_enabled and mtls_status_changed)
+                )
+                
+                if need_restart:
+                    try:
+                        logger.info("Restarting Mosquitto container to apply require_certificate changes...")
+                        subprocess.run(
+                            ["docker", "restart", "camthink-mosquitto"],
+                            check=True,
+                            timeout=30,
+                        )
+                        logger.info("Mosquitto container restarted successfully")
+                        mosquitto_restarted = True
+                    except subprocess.TimeoutExpired:
+                        logger.error("Mosquitto container restart timed out")
+                    except Exception as e:
+                        # If restart fails (e.g. docker CLI or permissions), log warning but don't block API.
+                        logger.warning(f"Failed to restart Mosquitto container: {e}")
+                        logger.warning("Please manually restart Mosquitto container for require_certificate changes to take effect")
+                elif config_changed:
+                    # Config changed but require_certificate didn't change, reload via SIGHUP
+                    # This allows allow_anonymous and other reloadable settings to be updated without restart
+                    try:
+                        subprocess.run(
+                            ["docker", "kill", "-s", "HUP", "camthink-mosquitto"],
+                            check=True,
+                        )
+                        logger.info("Sent SIGHUP to Mosquitto container to reload configuration (allow_anonymous, etc.)")
+                    except Exception as e:
+                        logger.warning(f"Failed to send HUP to Mosquitto container: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to synchronize Mosquitto allow_anonymous or require_certificate: {e}")
+
+    # Apply to running services
+    from backend.services.mqtt_broker import builtin_mqtt_broker
+    from backend.config import settings as app_settings
+    import time
+
+    # Check if client-related configuration changed
+    # Only reconnect if configuration changes that actually require client reconnection:
+    # - enabled/external_enabled: Service start/stop
+    # - protocol: Client must connect to different port (1883 vs 8883)
+    # - broker_host: Client must connect to different host
+    # - TCP/TLS port: Client must connect to different port
+    # - TLS enabled: Client must use TLS or not
+    # - mTLS enabled: Client must send client certificates or not (affects TLS configuration)
+    # Note: allow_anonymous, username, password, max_connections, keepalive_timeout, ca_cert_path changes
+    # don't require client reconnection (these are broker-side settings that can be reloaded via SIGHUP
+    # without affecting existing client connections)
+    client_config_changed = (
+        current.enabled != saved.enabled or
+        current.external_enabled != saved.external_enabled or
+        current.builtin_protocol != saved.builtin_protocol or
+        current.builtin_broker_host != saved.builtin_broker_host or
+        current.builtin_tcp_port != saved.builtin_tcp_port or
+        current.builtin_tls_port != saved.builtin_tls_port or
+        current.builtin_tls_enabled != saved.builtin_tls_enabled or
+        current.builtin_tls_require_client_cert != saved.builtin_tls_require_client_cert
+    )
+    
+    # Also reconnect if Mosquitto broker was actually restarted (not just SIGHUP)
+    # When broker restarts, existing connections are lost, so client must reconnect
+    # mosquitto_restarted is set in the config update block above when need_restart=True
+    # Note: mosquitto_restarted variable is defined in the try block above, so we need to handle it carefully
+    # For now, we check if client_config_changed OR if we detect that a restart should have happened
+    # The restart detection is handled in the mosquitto config update block above
+
+    # Reload MQTT client connection if needed
+    # If client config changed OR Mosquitto was restarted, reconnect client
+    if client_config_changed or (saved.enabled and mosquitto_restarted):
+        try:
+            mqtt_service.reload_and_reconnect()
+            # Wait a bit for connection to establish (connection is async)
+            # Don't wait too long to avoid blocking the API response
+            time.sleep(0.5)
+        except Exception as e:
+            logger.warning(f"Failed to reconnect MQTT client after config update: {e}")
+
+    return saved
+
+
+# ========== Built-in MQTT TLS Certificate Management ==========
+
+
+@router.post("/system/mqtt/tls/upload/{kind}")
+async def upload_mqtt_tls_file(
+    kind: str,
+    file: UploadFile = File(...),
+):
+    """
+    Upload TLS-related files for built-in Mosquitto broker and MQTT client.
+
+    Supported kinds:
+    - 'ca'           -> /mosquitto/config/certs/ca.crt
+    - 'server_cert'  -> /mosquitto/config/certs/server.crt
+    - 'server_key'   -> /mosquitto/config/certs/server.key
+    - 'client_cert'  -> /mosquitto/config/certs/client.crt  (used by MQTT client for mTLS, optional)
+    - 'client_key'   -> /mosquitto/config/certs/client.key  (used by MQTT client for mTLS, optional)
+    """
+    kind = kind.lower()
+    if kind not in {"ca", "server_cert", "server_key", "client_cert", "client_key"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid kind, must be one of: ca, server_cert, server_key, client_cert, client_key",
+        )
+
+    filename = file.filename or ""
+    ext = Path(filename).suffix.lower()
+    if kind in {"ca", "server_cert", "client_cert"} and ext not in {".crt", ".pem"}:
+        raise HTTPException(status_code=400, detail="Certificate file must be .crt or .pem")
+    if kind in {"server_key", "client_key"} and ext not in {".key", ".pem"}:
+        raise HTTPException(status_code=400, detail="Key file must be .key or .pem")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    text = content.decode("utf-8", errors="ignore")
+    # Basic PEM format checks
+    if kind in {"ca", "server_cert", "client_cert"} and "BEGIN CERTIFICATE" not in text:
+        raise HTTPException(status_code=400, detail="Invalid certificate file: missing BEGIN CERTIFICATE")
+    if kind in {"server_key", "client_key"} and "BEGIN" not in text and "PRIVATE KEY" not in text:
+        raise HTTPException(status_code=400, detail="Invalid key file: missing PRIVATE KEY block")
+
+    # CRITICAL SECURITY: Validate certificate/key files using OpenSSL before accepting them
+    # This prevents accepting invalid files (empty files, corrupted files, etc.)
+    import tempfile
+    import os
+    
+    if kind in {"ca", "server_cert", "client_cert"}:
+        # Write content to temp file for OpenSSL validation
+        with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.crt') as tmp_file:
+            tmp_file.write(content)
+            tmp_cert_path = tmp_file.name
+        
+        try:
+            # Use OpenSSL to verify the certificate is actually valid
+            result = subprocess.run(
+                ["openssl", "x509", "-in", tmp_cert_path, "-noout", "-text"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            
+            if result.returncode != 0:
+                logger.error(f"Invalid certificate file uploaded: {result.stderr}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid certificate file: OpenSSL validation failed. {result.stderr[:200]}"
+                )
+            
+            # Additional check: verify certificate has valid structure
+            # Extract subject to ensure it's a real certificate
+            subject_result = subprocess.run(
+                ["openssl", "x509", "-in", tmp_cert_path, "-noout", "-subject"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            
+            if subject_result.returncode != 0 or not subject_result.stdout.strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid certificate file: cannot extract certificate subject"
+                )
+            
+            logger.info(f"Certificate validation passed: {subject_result.stdout.strip()[:100]}")
+        except HTTPException:
+            raise
+        except subprocess.CalledProcessError as e:
+            logger.error(f"OpenSSL validation error: {e}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Certificate validation failed: {str(e)}"
+            )
+        except FileNotFoundError:
+            logger.warning("OpenSSL not available, skipping certificate validation")
+            # If OpenSSL is not available, we can't validate, but this should not happen in production
+        finally:
+            try:
+                os.unlink(tmp_cert_path)
+            except:
+                pass
+    
+    elif kind in {"server_key", "client_key"}:
+        # Write content to temp file for OpenSSL validation
+        with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.key') as tmp_file:
+            tmp_file.write(content)
+            tmp_key_path = tmp_file.name
+        
+        try:
+            # Use OpenSSL to verify the key is actually valid
+            result = subprocess.run(
+                ["openssl", "rsa", "-in", tmp_key_path, "-check", "-noout"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            
+            if result.returncode != 0:
+                # Try EC key format
+                result = subprocess.run(
+                    ["openssl", "ec", "-in", tmp_key_path, "-check", "-noout"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+            
+            if result.returncode != 0:
+                logger.error(f"Invalid key file uploaded: {result.stderr}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid key file: OpenSSL validation failed. Key may be corrupted or in wrong format."
+                )
+            
+            logger.info("Key validation passed")
+        except HTTPException:
+            raise
+        except subprocess.CalledProcessError as e:
+            logger.error(f"OpenSSL validation error: {e}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Key validation failed: {str(e)}"
+            )
+        except FileNotFoundError:
+            logger.warning("OpenSSL not available, skipping key validation")
+        finally:
+            try:
+                os.unlink(tmp_key_path)
+            except:
+                pass
+
+    base_dir = Path("/mosquitto/config/certs")
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    if kind == "ca":
+        dest = base_dir / "ca.crt"
+        # CRITICAL SECURITY CHECK: Verify that uploaded CA matches existing CA (if exists)
+        # This prevents replacing the CA with a different one, which would allow unauthorized certificates
+        if dest.exists():
+            try:
+                # Get fingerprints of both certificates
+                import tempfile
+                import hashlib
+                
+                # Read existing CA certificate
+                existing_ca_content = dest.read_bytes()
+                
+                # Calculate SHA256 fingerprints
+                existing_fingerprint = hashlib.sha256(existing_ca_content).hexdigest()
+                new_fingerprint = hashlib.sha256(content).hexdigest()
+                
+                # If fingerprints don't match, reject the upload
+                if existing_fingerprint != new_fingerprint:
+                    logger.warning(f"CA certificate replacement attempt detected. Existing fingerprint: {existing_fingerprint[:16]}..., New fingerprint: {new_fingerprint[:16]}...")
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Cannot replace CA certificate with a different one. This would allow unauthorized certificates to connect. If you need to change the CA, please delete all existing certificates first or contact system administrator."
+                    )
+                
+                # Also verify using OpenSSL to ensure certificates are actually the same
+                # (in case of certificate renewal with same key but different validity period)
+                try:
+                    # Extract subject and issuer from both certificates
+                    existing_subject = subprocess.run(
+                        ["openssl", "x509", "-in", str(dest), "-noout", "-subject"],
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                    ).stdout.strip()
+                    
+                    existing_issuer = subprocess.run(
+                        ["openssl", "x509", "-in", str(dest), "-noout", "-issuer"],
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                    ).stdout.strip()
+                    
+                    # Write new CA to temp file for comparison
+                    with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.crt') as tmp_ca:
+                        tmp_ca.write(content)
+                        tmp_ca_path = tmp_ca.name
+                    
+                    try:
+                        new_subject = subprocess.run(
+                            ["openssl", "x509", "-in", tmp_ca_path, "-noout", "-subject"],
+                            capture_output=True,
+                            text=True,
+                            check=True,
+                        ).stdout.strip()
+                        
+                        new_issuer = subprocess.run(
+                            ["openssl", "x509", "-in", tmp_ca_path, "-noout", "-issuer"],
+                            capture_output=True,
+                            text=True,
+                            check=True,
+                        ).stdout.strip()
+                        
+                        # Subject and issuer must match (CA certificates are self-signed, so subject == issuer)
+                        if existing_subject != new_subject or existing_issuer != new_issuer:
+                            logger.warning(f"CA certificate subject/issuer mismatch. Existing: {existing_subject}, New: {new_subject}")
+                            raise HTTPException(
+                                status_code=403,
+                                detail="Cannot replace CA certificate with a different one. The new CA has different subject/issuer. This would allow unauthorized certificates to connect."
+                            )
+                    finally:
+                        try:
+                            os.unlink(tmp_ca_path)
+                        except:
+                            pass
+                except subprocess.CalledProcessError as e:
+                    logger.warning(f"Failed to verify CA certificate using OpenSSL: {e}. Proceeding with fingerprint check only.")
+                except FileNotFoundError:
+                    logger.warning("OpenSSL not available for CA certificate verification. Proceeding with fingerprint check only.")
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error validating CA certificate: {e}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to validate CA certificate: {str(e)}"
+                )
+    elif kind == "server_cert":
+        dest = base_dir / "server.crt"
+        # Validate server certificate matches server key (if both exist)
+        server_key = base_dir / "server.key"
+        if server_key.exists():
+            try:
+                # Write temp server cert for validation
+                with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.crt') as tmp_cert:
+                    tmp_cert.write(content)
+                    tmp_cert_path = tmp_cert.name
+                
+                try:
+                    # Extract public key from certificate
+                    cert_pubkey = subprocess.run(
+                        ["openssl", "x509", "-in", tmp_cert_path, "-noout", "-pubkey"],
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                    ).stdout
+                    
+                    # Extract public key from key file
+                    key_pubkey = subprocess.run(
+                        ["openssl", "rsa", "-in", str(server_key), "-pubout"],
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                    ).stdout
+                    
+                    if cert_pubkey != key_pubkey:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Server certificate does not match server key. Certificate and key must be a matching pair."
+                        )
+                    
+                    logger.info("Server certificate matches server key")
+                finally:
+                    try:
+                        os.unlink(tmp_cert_path)
+                    except:
+                        pass
+            except HTTPException:
+                raise
+            except subprocess.CalledProcessError as e:
+                logger.warning(f"Failed to verify server cert/key match: {e}")
+            except FileNotFoundError:
+                logger.warning("OpenSSL not available, skipping server cert/key validation")
+    elif kind == "server_key":
+        dest = base_dir / "server.key"
+    elif kind == "client_cert":
+        dest = base_dir / "client.crt"
+        # Validate client certificate is signed by CA (if CA exists)
+        ca_crt = base_dir / "ca.crt"
+        if ca_crt.exists():
+            try:
+                # Write temp client cert for validation
+                with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.crt') as tmp_cert:
+                    tmp_cert.write(content)
+                    tmp_cert_path = tmp_cert.name
+                
+                try:
+                    # Verify certificate is signed by CA
+                    verify_result = subprocess.run(
+                        ["openssl", "verify", "-CAfile", str(ca_crt), tmp_cert_path],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    
+                    if verify_result.returncode != 0:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Client certificate is not signed by the configured CA. {verify_result.stderr[:200]}"
+                        )
+                    
+                    logger.info("Client certificate verified against CA")
+                finally:
+                    try:
+                        os.unlink(tmp_cert_path)
+                    except:
+                        pass
+            except HTTPException:
+                raise
+            except subprocess.CalledProcessError as e:
+                logger.warning(f"Failed to verify client cert against CA: {e}")
+            except FileNotFoundError:
+                logger.warning("OpenSSL not available, skipping client cert CA validation")
+    else:  # client_key
+        dest = base_dir / "client.key"
+        # Validate client key matches client cert (if both exist)
+        client_crt = base_dir / "client.crt"
+        if client_crt.exists():
+            try:
+                # Write temp client key for validation
+                with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.key') as tmp_key:
+                    tmp_key.write(content)
+                    tmp_key_path = tmp_key.name
+                
+                try:
+                    # Extract public key from certificate
+                    cert_pubkey = subprocess.run(
+                        ["openssl", "x509", "-in", str(client_crt), "-noout", "-pubkey"],
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                    ).stdout
+                    
+                    # Extract public key from key file
+                    key_pubkey = subprocess.run(
+                        ["openssl", "rsa", "-in", tmp_key_path, "-pubout"],
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                    ).stdout
+                    
+                    if cert_pubkey != key_pubkey:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Client key does not match client certificate. Certificate and key must be a matching pair."
+                        )
+                    
+                    logger.info("Client key matches client certificate")
+                finally:
+                    try:
+                        os.unlink(tmp_key_path)
+                    except:
+                        pass
+            except HTTPException:
+                raise
+            except subprocess.CalledProcessError as e:
+                logger.warning(f"Failed to verify client key/cert match: {e}")
+            except FileNotFoundError:
+                logger.warning("OpenSSL not available, skipping client key/cert validation")
+
+    try:
+        dest.write_bytes(content)
+        if kind in {"server_key", "client_key"}:
+            dest.chmod(0o600)
+    except Exception as e:
+        logger.error(f"Failed to write TLS file {dest}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
+
+    # If CA was updated, also update builtin TLS CA path in config so clients pick it up.
+    if kind == "ca":
+        cfg = mqtt_config_service.load_config()
+        cfg.builtin_tls_ca_cert_path = str(dest)
+        mqtt_config_service.save_config(cfg)
+        # CRITICAL: CA certificate change requires Mosquitto restart (not just SIGHUP)
+        # This ensures the new CA is properly loaded and used for verification
+        logger.info("CA certificate updated, restarting Mosquitto to apply changes")
+        try:
+            subprocess.run(
+                ["docker", "restart", "camthink-mosquitto"],
+                check=True,
+                timeout=30,
+            )
+            logger.info("Mosquitto restarted successfully after CA certificate update")
+        except Exception as e:
+            logger.error(f"Failed to restart Mosquitto after CA certificate update: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"CA certificate updated but failed to restart Mosquitto: {e}. Please restart manually."
+            )
+    # Note: Client cert/key paths are no longer persisted - AIToolStack always uses default paths
+    # (/mosquitto/config/certs/client.crt and /mosquitto/config/certs/client.key)
+
+    # Ask Mosquitto container to reload configuration (including new certs)
+    # Note: For CA changes, we restart above, so this is only for other certificate types
+    if kind != "ca":
+        try:
+            subprocess.run(
+                ["docker", "kill", "-s", "HUP", "camthink-mosquitto"],
+                check=True,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to send HUP to Mosquitto container after TLS upload: {e}")
+
+    return {"success": True, "path": str(dest)}
+
+
+@router.post("/system/mqtt/tls/upload-external/{kind}")
+async def upload_external_broker_tls_file(
+    kind: str,
+    file: UploadFile = File(...),
+):
+    """
+    Upload TLS-related files for external MQTT brokers.
+    These files are stored separately from built-in broker certificates.
+
+    Supported kinds:
+    - 'ca'           -> /mosquitto/config/certs/external/ca-{timestamp}.crt
+    - 'client_cert'  -> /mosquitto/config/certs/external/client-cert-{timestamp}.crt
+    - 'client_key'   -> /mosquitto/config/certs/external/client-key-{timestamp}.key
+    """
+    import time
+    kind = kind.lower()
+    if kind not in {"ca", "client_cert", "client_key"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid kind, must be one of: ca, client_cert, client_key",
+        )
+
+    filename = file.filename or ""
+    ext = Path(filename).suffix.lower()
+    if kind in {"ca", "client_cert"} and ext not in {".crt", ".pem"}:
+        raise HTTPException(status_code=400, detail="Certificate file must be .crt or .pem")
+    if kind == "client_key" and ext not in {".key", ".pem"}:
+        raise HTTPException(status_code=400, detail="Key file must be .key or .pem")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    text = content.decode("utf-8", errors="ignore")
+    # Basic PEM format checks
+    if kind in {"ca", "client_cert"} and "BEGIN CERTIFICATE" not in text:
+        raise HTTPException(status_code=400, detail="Invalid certificate file: missing BEGIN CERTIFICATE")
+    if kind == "client_key" and "BEGIN" not in text and "PRIVATE KEY" not in text:
+        raise HTTPException(status_code=400, detail="Invalid key file: missing PRIVATE KEY block")
+
+    base_dir = Path("/mosquitto/config/certs/external")
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    # Use timestamp to make unique filenames
+    timestamp = int(time.time())
+    if kind == "ca":
+        dest = base_dir / f"ca-{timestamp}.crt"
+    elif kind == "client_cert":
+        dest = base_dir / f"client-cert-{timestamp}.crt"
+    else:  # client_key
+        dest = base_dir / f"client-key-{timestamp}.key"
+
+    try:
+        dest.write_bytes(content)
+        if kind == "client_key":
+            dest.chmod(0o600)
+    except Exception as e:
+        logger.error(f"Failed to write external TLS file {dest}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
+
+    return {"success": True, "path": str(dest)}
+
+
+@router.get("/system/mqtt/tls/ca")
+def download_mqtt_ca_certificate():
+    """Download current CA certificate used by built-in Mosquitto broker for MQTTS."""
+    ca_path = Path("/mosquitto/config/certs/ca.crt")
+    if not ca_path.exists():
+        raise HTTPException(status_code=404, detail="CA certificate not found")
+    return FileResponse(
+        str(ca_path),
+        media_type="application/x-x509-ca-cert",
+        filename="mqtt-ca.crt",
+    )
+
+
+@router.get("/system/mqtt/tls/client-cert")
+def download_mqtt_client_certificate():
+    """Download current client certificate for mTLS (used by external devices to connect to MQTTS)."""
+    client_cert_path = Path("/mosquitto/config/certs/client.crt")
+    if not client_cert_path.exists():
+        raise HTTPException(status_code=404, detail="Client certificate not found. Please upload a client certificate first.")
+    return FileResponse(
+        str(client_cert_path),
+        media_type="application/x-x509-user-cert",
+        filename="mqtt-client.crt",
+    )
+
+
+@router.get("/system/mqtt/tls/client-key")
+def download_mqtt_client_key():
+    """Download current client private key for mTLS (used by AIToolStack to connect to MQTTS)."""
+    client_key_path = Path("/mosquitto/config/certs/client.key")
+    if not client_key_path.exists():
+        raise HTTPException(status_code=404, detail="Client key not found. Please upload a client key first.")
+    return FileResponse(
+        str(client_key_path),
+        media_type="application/x-pem-file",
+        filename="mqtt-client.key",
+    )
+
+
+@router.get("/system/mqtt/tls/device-cert/{common_name}")
+def download_device_client_certificate(common_name: str):
+    """Download client certificate for a specific device (by CN)."""
+    from urllib.parse import unquote
+    safe_cn = "".join(c if c.isalnum() or c in ('-', '_') else '_' for c in unquote(common_name))
+    client_cert_path = Path(f"/mosquitto/config/certs/client-{safe_cn}.crt")
+    if not client_cert_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Client certificate for device '{common_name}' not found. Please generate it first.",
+        )
+    return FileResponse(
+        str(client_cert_path),
+        media_type="application/x-x509-user-cert",
+        filename=f"mqtt-client-{safe_cn}.crt",
+    )
+
+
+@router.get("/system/mqtt/tls/device-key/{common_name}")
+def download_device_client_key(common_name: str):
+    """Download client private key for a specific device (by CN)."""
+    from urllib.parse import unquote
+    safe_cn = "".join(c if c.isalnum() or c in ('-', '_') else '_' for c in unquote(common_name))
+    client_key_path = Path(f"/mosquitto/config/certs/client-{safe_cn}.key")
+    if not client_key_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Client key for device '{common_name}' not found. Please generate it first.",
+        )
+    return FileResponse(
+        str(client_key_path),
+        media_type="application/x-pem-file",
+        filename=f"mqtt-client-{safe_cn}.key",
+    )
+
+
+@router.get("/system/mqtt/tls/external/{kind}/{filename}")
+def download_external_broker_tls_file(kind: str, filename: str):
+    """Download TLS files for external MQTT brokers.
+    
+    Args:
+        kind: 'ca', 'client-cert', or 'client-key'
+        filename: Filename without extension (e.g., 'ca-1766456884' or 'client-cert-1766456884')
+    """
+    from urllib.parse import unquote
+    
+    kind = kind.lower()
+    if kind not in {"ca", "client-cert", "client-key"}:
+        raise HTTPException(status_code=400, detail="Invalid kind, must be one of: ca, client-cert, client-key")
+    
+    safe_filename = "".join(c if c.isalnum() or c in ('-', '_') else '_' for c in unquote(filename))
+    
+    base_dir = Path("/mosquitto/config/certs/external")
+    if kind == "ca":
+        file_path = base_dir / f"{safe_filename}.crt"
+        media_type = "application/x-x509-ca-cert"
+        download_filename = f"mqtt-external-ca-{safe_filename}.crt"
+    elif kind == "client-cert":
+        file_path = base_dir / f"{safe_filename}.crt"
+        media_type = "application/x-x509-user-cert"
+        download_filename = f"mqtt-external-client-{safe_filename}.crt"
+    else:  # client-key
+        file_path = base_dir / f"{safe_filename}.key"
+        media_type = "application/x-pem-file"
+        download_filename = f"mqtt-external-client-{safe_filename}.key"
+    
+    if not file_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"File not found: {file_path.name}"
+        )
+    
+    return FileResponse(
+        str(file_path),
+        media_type=media_type,
+        filename=download_filename,
+    )
+
+
+@router.post("/system/mqtt/tls/sync-device-certificates")
+def sync_device_certificates_to_password_file():
+    """Sync all device certificate CNs to Mosquitto password file.
+    
+    This is required when mTLS is enabled and use_identity_as_username=true.
+    Only users in the password file can connect when use_identity_as_username is enabled.
+    """
+    from pathlib import Path
+    import re
+    
+    certs_dir = Path("/mosquitto/config/certs")
+    if not certs_dir.exists():
+        return {"message": "No certificates directory found", "synced": 0}
+    
+    # Get all device certificates (client-{CN}.crt pattern)
+    pattern = re.compile(r'^client-(.+)\.crt$')
+    device_certs = []
+    for cert_file in certs_dir.glob("client-*.crt"):
+        match = pattern.match(cert_file.name)
+        if match:
+            cn = match.group(1)
+            device_certs.append(cn)
+    
+    # Add each device CN to password file
+    synced_count = 0
+    failed_count = 0
+    for cn in device_certs:
+        try:
+            _add_device_to_password_file(cn)
+            synced_count += 1
+            logger.info(f"Synced device certificate CN '{cn}' to password file")
+        except Exception as e:
+            failed_count += 1
+            logger.warning(f"Failed to sync device CN '{cn}' to password file: {e}")
+    
+    return {
+        "message": f"Synced {synced_count} device certificate(s) to password file",
+        "synced": synced_count,
+        "failed": failed_count,
+        "total": len(device_certs)
+    }
+
+
+@router.get("/system/mqtt/tls/device-certificates")
+def list_device_certificates():
+    """List all device client certificates (excluding AIToolStack's client.crt)."""
+    from pathlib import Path
+    import re
+    
+    certs_dir = Path("/mosquitto/config/certs")
+    if not certs_dir.exists():
+        return {"devices": []}
+    
+    # Find all device certificates (client-{CN}.crt pattern)
+    device_certs = []
+    pattern = re.compile(r'^client-(.+)\.crt$')
+    
+    for cert_file in certs_dir.glob("client-*.crt"):
+        match = pattern.match(cert_file.name)
+        if match:
+            cn = match.group(1)
+            key_file = certs_dir / f"client-{cn}.key"
+            cert_path = cert_file
+            key_path = key_file if key_file.exists() else None
+            
+            # Get file modification time
+            try:
+                mtime = cert_file.stat().st_mtime
+                from datetime import datetime
+                created_at = datetime.fromtimestamp(mtime).isoformat()
+            except:
+                created_at = None
+            
+            device_certs.append({
+                "common_name": cn,
+                "cert_path": str(cert_path),
+                "key_path": str(key_path) if key_path else None,
+                "cert_exists": cert_path.exists(),
+                "key_exists": key_path is not None and key_path.exists(),
+                "created_at": created_at,
+            })
+    
+    # Sort by common name
+    device_certs.sort(key=lambda x: x["common_name"])
+    
+    return {"devices": device_certs}
+
+
+def _add_certificate_to_ca_database(cert_path: Path, certs_dir: Path, common_name: str):
+    """Add a certificate to the CA database (index.txt) for CRL support.
+    
+    This allows the certificate to be properly revoked later using openssl ca -revoke.
+    """
+    ca_db_dir = certs_dir / "ca_db"
+    ca_db_dir.mkdir(exist_ok=True)
+    index_file = ca_db_dir / "index.txt"
+    serial_file = ca_db_dir / "serial"
+    
+    # Initialize files if needed
+    if not index_file.exists():
+        index_file.write_text("")
+    if not serial_file.exists():
+        serial_file.write_text("01")
+    
+    # Extract certificate serial number
+    try:
+        result = subprocess.run(
+            ["openssl", "x509", "-in", str(cert_path), "-noout", "-serial"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        cert_serial = result.stdout.strip().replace("serial=", "").replace(":", "").upper()
+    except Exception as e:
+        logger.warning(f"Failed to extract certificate serial: {e}")
+        return  # Cannot add to database without serial
+    
+    # Check if certificate is already in database
+    if index_file.exists():
+        index_content = index_file.read_text()
+        if cert_serial in index_content:
+            logger.debug(f"Certificate {cert_serial} already in CA database")
+            return
+    
+    # Extract certificate subject
+    try:
+        result = subprocess.run(
+            ["openssl", "x509", "-in", str(cert_path), "-noout", "-subject", "-nameopt", "RFC2253"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        cert_subject = result.stdout.strip().replace("subject=", "")
+    except:
+        cert_subject = f"/CN={common_name}"
+    
+    # Extract certificate validity dates
+    try:
+        result = subprocess.run(
+            ["openssl", "x509", "-in", str(cert_path), "-noout", "-dates"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        # Parse notBefore date
+        not_before = None
+        for line in result.stdout.split('\n'):
+            if 'notBefore=' in line:
+                not_before_str = line.split('=')[1].strip()
+                # Convert to index.txt format (YYMMDDHHMMSSZ)
+                from datetime import datetime
+                try:
+                    dt = datetime.strptime(not_before_str, "%b %d %H:%M:%S %Y %Z")
+                    not_before = dt.strftime("%y%m%d%H%M%S") + "Z"
+                except:
+                    not_before = datetime.utcnow().strftime("%y%m%d%H%M%S") + "Z"
+                break
+        if not not_before:
+            not_before = datetime.utcnow().strftime("%y%m%d%H%M%S") + "Z"
+    except:
+        from datetime import datetime
+        not_before = datetime.utcnow().strftime("%y%m%d%H%M%S") + "Z"
+    
+    # Add certificate to index.txt (format: V\t{notBefore}\t\t{serial}\tunknown\t{subject})
+    # V = Valid status
+    index_entry = f"V\t{not_before}\t\t{cert_serial}\tunknown\t{cert_subject}\n"
+    index_file.write_text(index_file.read_text() + index_entry)
+    logger.info(f"Added certificate {cert_serial} (CN: {common_name}) to CA database")
+
+
+def _add_certificate_to_crl(cert_content: bytes, certs_dir: Path):
+    """Add a certificate to the Certificate Revocation List (CRL).
+    
+    This function creates or updates a CRL file that Mosquitto can use to reject
+    revoked certificates. The CRL is created using OpenSSL.
+    
+    Note: This requires proper CA database setup. We initialize it if needed.
+    """
+    crl_file = certs_dir / "revoked.crl"
+    ca_cert = certs_dir / "ca.crt"
+    ca_key = certs_dir / "ca.key"
+    
+    # Check if CA files exist
+    if not ca_cert.exists() or not ca_key.exists():
+        raise ValueError("CA certificate or key not found. Cannot create CRL.")
+    
+    # Write certificate to temporary file for processing
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.crt') as tmp_cert:
+        tmp_cert.write(cert_content)
+        tmp_cert_path = tmp_cert.name
+    
+    try:
+        # Initialize CA database directory
+        ca_db_dir = certs_dir / "ca_db"
+        ca_db_dir.mkdir(exist_ok=True)
+        index_file = ca_db_dir / "index.txt"
+        serial_file = ca_db_dir / "serial"
+        crlnumber_file = ca_db_dir / "crlnumber"
+        
+        # Initialize CA database files if they don't exist
+        if not index_file.exists():
+            index_file.write_text("")
+        if not serial_file.exists():
+            serial_file.write_text("01")
+        if not crlnumber_file.exists():
+            crlnumber_file.write_text("01")
+        
+        # Create OpenSSL CA configuration
+        ca_config_content = f"""[ ca ]
+default_ca = CA_default
+
+[ CA_default ]
+dir = {ca_db_dir}
+certs = {certs_dir}
+new_certs_dir = {ca_db_dir}
+database = {index_file}
+serial = {serial_file}
+RANDFILE = {ca_db_dir}/.rand
+private_key = {ca_key}
+certificate = {ca_cert}
+crlnumber = {crlnumber_file}
+crl = {crl_file}
+x509_extensions = v3_ca
+name_opt = ca_default
+cert_opt = ca_default
+default_days = 365
+default_crl_days = 30
+default_md = sha256
+preserve = no
+policy = policy_match
+
+[ policy_match ]
+countryName = optional
+stateOrProvinceName = optional
+organizationName = optional
+organizationalUnitName = optional
+commonName = supplied
+emailAddress = optional
+
+[ v3_ca ]
+"""
+        ca_config_file = ca_db_dir / "openssl.cnf"
+        ca_config_file.write_text(ca_config_content)
+        
+        # Extract certificate serial number for tracking
+        cert_serial = None
+        try:
+            result = subprocess.run(
+                ["openssl", "x509", "-in", tmp_cert_path, "-noout", "-serial"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            cert_serial = result.stdout.strip().replace("serial=", "").replace(":", "").upper()
+        except Exception as e:
+            logger.warning(f"Failed to extract certificate serial: {e}")
+        
+        # Check if certificate is already in the database
+        cert_in_db = False
+        if cert_serial and index_file.exists():
+            index_content = index_file.read_text()
+            if cert_serial in index_content:
+                cert_in_db = True
+        
+        # If certificate is not in database, we need to add it first
+        # Extract certificate subject for database entry
+        cert_subject = "/CN=unknown"
+        if not cert_in_db:
+            try:
+                result = subprocess.run(
+                    ["openssl", "x509", "-in", tmp_cert_path, "-noout", "-subject", "-nameopt", "RFC2253"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                cert_subject = result.stdout.strip().replace("subject=", "").replace("subject=", "")
+            except:
+                pass
+            
+            # Add certificate to database as revoked (R status)
+            from datetime import datetime
+            now = datetime.utcnow()
+            revoke_date = now.strftime("%y%m%d%H%M%S") + "Z"
+            if cert_serial:
+                index_entry = f"R\t{revoke_date}\t\t{cert_serial}\tunknown\t{cert_subject}\n"
+                index_file.write_text(index_file.read_text() + index_entry)
+        
+        # Try to revoke the certificate using openssl ca
+        try:
+            subprocess.run(
+                ["openssl", "ca", "-revoke", tmp_cert_path,
+                 "-keyfile", str(ca_key),
+                 "-cert", str(ca_cert),
+                 "-config", str(ca_config_file),
+                 "-crl_reason", "superseded"],
+                check=True,
+                capture_output=True,
+                timeout=10,
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            # If revoke fails, ensure the certificate is marked as revoked in index.txt
+            if cert_serial and index_file.exists():
+                content = index_file.read_text()
+                lines = content.split('\n')
+                updated = False
+                for i, line in enumerate(lines):
+                    if cert_serial in line and line.startswith('V\t'):
+                        from datetime import datetime
+                        now = datetime.utcnow()
+                        revoke_date = now.strftime("%y%m%d%H%M%S") + "Z"
+                        # Update status from V (Valid) to R (Revoked)
+                        parts = line.split('\t')
+                        if len(parts) >= 2:
+                            parts[0] = 'R'
+                            parts[1] = revoke_date
+                            lines[i] = '\t'.join(parts)
+                            updated = True
+                            break
+                if updated:
+                    index_file.write_text('\n'.join(lines))
+            logger.warning(f"OpenSSL ca -revoke failed, manually updated index.txt: {e}")
+        
+        # Generate CRL
+        crl_generated = False
+        try:
+            result = subprocess.run(
+                ["openssl", "ca", "-gencrl",
+                 "-keyfile", str(ca_key),
+                 "-cert", str(ca_cert),
+                 "-config", str(ca_config_file),
+                 "-out", str(crl_file)],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            # Verify CRL was generated successfully
+            if crl_file.exists() and crl_file.stat().st_size > 0:
+                crl_generated = True
+                logger.info(f"CRL generated successfully: {crl_file}")
+            else:
+                logger.warning("CRL generation completed but file is empty or missing")
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            # If CRL generation fails, log warning but continue
+            logger.warning(f"Failed to generate CRL: {e}")
+            logger.warning("CRL file generation failed. Certificate revocation may not work properly.")
+        
+        # Only update mosquitto.conf if CRL was successfully generated
+        if crl_generated:
+            _ensure_crlfile_in_mosquitto_conf()
+    finally:
+        # Clean up temporary file
+        try:
+            os.unlink(tmp_cert_path)
+        except:
+            pass
+
+
+def _is_valid_crl_file(crl_file: Path) -> bool:
+    """Check if CRL file exists and is valid (non-empty and has valid PEM format)."""
+    if not crl_file.exists():
+        return False
+    
+    try:
+        content = crl_file.read_text()
+        # CRL file must be non-empty and contain PEM format markers
+        if not content.strip():
+            return False
+        # Check for PEM format (should contain BEGIN/END markers)
+        if "BEGIN" in content and "END" in content:
+            return True
+        # If it's a valid binary CRL, it should have some content
+        if len(content) > 100:  # Valid CRL files are typically larger
+            return True
+        return False
+    except Exception as e:
+        logger.warning(f"Error checking CRL file validity: {e}")
+        return False
+
+
+def _ensure_crlfile_in_mosquitto_conf():
+    """Ensure mosquitto.conf includes crlfile configuration for listener 8883 only if CRL file is valid."""
+    conf_path = Path("/mosquitto/config/mosquitto.conf")
+    crl_file = Path("/mosquitto/config/certs/revoked.crl")
+    
+    if not conf_path.exists():
+        logger.warning("mosquitto.conf not found, cannot manage crlfile")
+        return
+    
+    conf_text = conf_path.read_text()
+    lines = conf_text.split('\n')
+    
+    # Find listener 8883 block
+    listener_8883_start = -1
+    listener_8883_end = -1
+    
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith('#'):
+            continue
+        if re.match(r'^listener\s+8883', stripped):
+            listener_8883_start = i
+        elif listener_8883_start >= 0:
+            if re.match(r'^listener\s+', stripped):
+                listener_8883_end = i
+                break
+            elif re.match(r'^(persistence|log_dest|log_timestamp|password_file|allow_anonymous)', stripped):
+                listener_8883_end = i
+                break
+    
+    if listener_8883_start < 0:
+        logger.warning("listener 8883 block not found in mosquitto.conf")
+        return
+    
+    if listener_8883_end < 0:
+        listener_8883_end = len(lines)
+    
+    # Check if CRL file is valid
+    crl_is_valid = _is_valid_crl_file(crl_file)
+    
+    # Find existing crlfile line
+    crlfile_line_index = -1
+    for i in range(listener_8883_start, listener_8883_end):
+        if re.match(r'^\s*crlfile\s+', lines[i]):
+            crlfile_line_index = i
+            break
+    
+    if crl_is_valid:
+        # CRL file is valid, ensure crlfile is configured
+        if crlfile_line_index >= 0:
+            # Update existing crlfile line
+            lines[crlfile_line_index] = re.sub(
+                r'^\s*crlfile\s+.*',
+                f'crlfile {crl_file}',
+                lines[crlfile_line_index]
+            )
+            logger.info(f"Updated crlfile line at line {crlfile_line_index+1}")
+        else:
+            # Insert crlfile after require_certificate or keyfile
+            insert_pos = listener_8883_end
+            for i in range(listener_8883_start, listener_8883_end):
+                if re.match(r'^\s*require_certificate\s+', lines[i]):
+                    insert_pos = i + 1
+                    break
+                elif re.match(r'^\s*keyfile\s+', lines[i]):
+                    insert_pos = i + 1
+            lines.insert(insert_pos, f'crlfile {crl_file}')
+            logger.info(f"Inserted crlfile at line {insert_pos+1}")
+    else:
+        # CRL file is invalid or doesn't exist, remove crlfile configuration if present
+        if crlfile_line_index >= 0:
+            lines.pop(crlfile_line_index)
+            logger.info(f"Removed crlfile configuration (CRL file is invalid or empty)")
+    
+    new_text = '\n'.join(lines)
+    if new_text != conf_text:
+        conf_path.write_text(new_text)
+        if crl_is_valid:
+            logger.info(f"Updated mosquitto.conf to include crlfile: {crl_file}")
+        else:
+            logger.info("Removed crlfile from mosquitto.conf (CRL file is invalid or empty)")
+
+
+def _add_device_to_password_file(common_name: str):
+    """Add a device CN to Mosquitto password file for mTLS authentication.
+    
+    When use_identity_as_username is enabled, only users in password file can connect.
+    This function ensures the device CN is added to the password file.
+    """
+    try:
+        passwordfile = Path("/mosquitto/config/passwordfile")
+        # Ensure passwordfile exists
+        if not passwordfile.exists():
+            passwordfile.parent.mkdir(parents=True, exist_ok=True)
+            passwordfile.touch()
+            os.chmod(passwordfile, 0o600)
+        
+        # Check if user already exists in password file
+        user_exists = False
+        if passwordfile.exists():
+            with open(passwordfile, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and ':' in line:
+                        user = line.split(':', 1)[0]
+                        if user == common_name:
+                            user_exists = True
+                            break
+        
+        # Add user to password file if it doesn't exist
+        # For mTLS, we don't need a password - the certificate itself is the authentication
+        # But Mosquitto requires a password entry. We'll use a random secure password that's never used.
+        if not user_exists:
+            import secrets
+            # Generate a random password that will never be used (certificate is the auth method)
+            dummy_password = secrets.token_urlsafe(32)
+            cmd = [
+                "mosquitto_passwd",
+                "-b",
+                str(passwordfile),
+                common_name,
+                dummy_password,
+            ]
+            subprocess.run(cmd, check=True, capture_output=True)
+            os.chmod(passwordfile, 0o600)
+            logger.info(f"Added device CN '{common_name}' to Mosquitto password file for mTLS authentication")
+        else:
+            logger.debug(f"Device CN '{common_name}' already exists in password file")
+    except Exception as e:
+        logger.warning(f"Failed to add device CN to password file: {e}. Certificate generated but device may not be able to connect if use_identity_as_username is enabled.")
+
+
+def _remove_device_from_password_file(common_name: str):
+    """Remove a device CN from Mosquitto password file."""
+    try:
+        passwordfile = Path("/mosquitto/config/passwordfile")
+        if not passwordfile.exists():
+            return
+        
+        # Read all lines except the one matching the CN
+        lines = []
+        removed = False
+        with open(passwordfile, 'r', encoding='utf-8') as f:
+            for line in f:
+                line_stripped = line.strip()
+                if line_stripped and ':' in line_stripped:
+                    user = line_stripped.split(':', 1)[0]
+                    if user != common_name:
+                        lines.append(line)
+                    else:
+                        removed = True
+        
+        # Write back the file without the removed user
+        if removed:
+            with open(passwordfile, 'w', encoding='utf-8') as f:
+                f.writelines(lines)
+            os.chmod(passwordfile, 0o600)
+            logger.info(f"Removed device CN '{common_name}' from Mosquitto password file")
+    except Exception as e:
+        logger.warning(f"Failed to remove device CN from password file: {e}")
+
+
+@router.delete("/system/mqtt/tls/device-certificate/{common_name}")
+def delete_device_certificate(common_name: str):
+    """Delete a device client certificate and key, and add it to CRL for immediate revocation."""
+    from urllib.parse import unquote
+    from pathlib import Path
+    import subprocess
+    
+    safe_cn = "".join(c if c.isalnum() or c in ('-', '_') else '_' for c in unquote(common_name))
+    certs_dir = Path("/mosquitto/config/certs")
+    
+    cert_path = certs_dir / f"client-{safe_cn}.crt"
+    key_path = certs_dir / f"client-{safe_cn}.key"
+    csr_path = certs_dir / f"client-{safe_cn}.csr"
+    
+    # Read certificate content before deletion (needed for CRL)
+    cert_content = None
+    if cert_path.exists():
+        cert_content = cert_path.read_bytes()
+    
+    # Remove device CN from password file (required when use_identity_as_username is enabled)
+    _remove_device_from_password_file(common_name)
+    
+    deleted_files = []
+    
+    if cert_path.exists():
+        cert_path.unlink()
+        deleted_files.append(str(cert_path))
+    
+    if key_path.exists():
+        key_path.unlink()
+        deleted_files.append(str(key_path))
+    
+    if csr_path.exists():
+        csr_path.unlink()
+        deleted_files.append(str(csr_path))
+    
+    if not deleted_files:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Device certificate for '{common_name}' not found.",
+        )
+    
+    # Add certificate to CRL for immediate revocation
+    # This ensures that even if the client still has the certificate, it cannot connect
+    if cert_content:
+        try:
+            _add_certificate_to_crl(cert_content, certs_dir)
+            logger.info(f"Added certificate for device '{common_name}' to CRL")
+        except Exception as e:
+            logger.warning(f"Failed to add certificate to CRL: {e}. Certificate deleted but may still be usable until Mosquitto restart.")
+    
+    # Update mosquitto.conf to include crlfile if mTLS is enabled and CRL is valid
+    # Only restart if CRL was successfully generated
+    try:
+        cfg = mqtt_config_service.load_config()
+        if cfg.builtin_protocol == "mqtts" and cfg.builtin_tls_require_client_cert:
+            # Check if CRL file is now valid (after generation attempt)
+            crl_file = Path("/mosquitto/config/certs/revoked.crl")
+            if _is_valid_crl_file(crl_file):
+                _ensure_crlfile_in_mosquitto_conf()
+                # Restart Mosquitto to apply CRL changes (CRL cannot be reloaded via SIGHUP)
+                try:
+                    subprocess.run(
+                        ["docker", "restart", "camthink-mosquitto"],
+                        check=True,
+                        timeout=30,
+                    )
+                    logger.info("Mosquitto restarted to apply CRL changes")
+                except Exception as e:
+                    logger.warning(f"Failed to restart Mosquitto after certificate deletion: {e}")
+            else:
+                logger.warning("CRL file is invalid or empty, not updating mosquitto.conf")
+    except Exception as e:
+        logger.warning(f"Failed to update mosquitto.conf with CRL: {e}")
+    
+    return {
+        "success": True,
+        "message": f"Deleted certificate for device '{common_name}' and added to revocation list",
+        "deleted_files": deleted_files,
+    }
+
+
+@router.post("/system/mqtt/tls/generate-client-cert")
+def generate_client_certificate(
+    common_name: str = "mqtt-client",
+    days: int = 3650,
+    for_aitoolstack: bool = True,
+):
+    """
+    Generate a client certificate and key signed by the CA for mTLS.
+    
+    Args:
+        common_name: CN (Common Name) for the client certificate (default: "mqtt-client")
+        days: Validity period in days (default: 3650, ~10 years)
+        for_aitoolstack: If True, generates certificate for AIToolStack (saves to client.crt/client.key).
+                        If False, generates certificate for external device (saves to client-{CN}.crt/client-{CN}.key).
+    
+    Returns:
+        Success message with paths to generated files
+    """
+    import subprocess
+    from pathlib import Path
+    
+    certs_dir = Path("/mosquitto/config/certs")
+    certs_dir.mkdir(parents=True, exist_ok=True)
+    
+    ca_crt = certs_dir / "ca.crt"
+    ca_key = certs_dir / "ca.key"
+    
+    # SECURITY CHECK: Verify that CA certificate and key match (prevent using wrong CA)
+    # This ensures we're using the correct CA to sign certificates
+    if ca_crt.exists() and ca_key.exists():
+        try:
+            # Verify that the CA certificate matches the CA key
+            # Extract public key from certificate and compare with key file
+            cert_pubkey = subprocess.run(
+                ["openssl", "x509", "-in", str(ca_crt), "-noout", "-pubkey"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            
+            key_pubkey = subprocess.run(
+                ["openssl", "rsa", "-in", str(ca_key), "-pubout"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            
+            if cert_pubkey != key_pubkey:
+                logger.error("CA certificate and key do not match! This is a security issue.")
+                raise HTTPException(
+                    status_code=500,
+                    detail="CA certificate and key mismatch. Cannot generate client certificates with mismatched CA."
+                )
+            
+            # Also verify that the CA certificate is self-signed (subject == issuer)
+            cert_subject = subprocess.run(
+                ["openssl", "x509", "-in", str(ca_crt), "-noout", "-subject"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            
+            cert_issuer = subprocess.run(
+                ["openssl", "x509", "-in", str(ca_crt), "-noout", "-issuer"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            
+            if cert_subject != cert_issuer:
+                logger.warning(f"CA certificate is not self-signed. Subject: {cert_subject}, Issuer: {cert_issuer}")
+                # This is not necessarily an error, but worth logging
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"Failed to verify CA certificate/key match: {e}. Proceeding with certificate generation.")
+        except FileNotFoundError:
+            logger.warning("OpenSSL not available for CA verification. Proceeding with certificate generation.")
+    
+    # Determine output file names based on whether this is for AIToolStack or external device
+    if for_aitoolstack:
+        # For AIToolStack: use default names (will be used by AIToolStack client)
+        client_key = certs_dir / "client.key"
+        client_crt = certs_dir / "client.crt"
+        client_csr = certs_dir / "client.csr"
+    else:
+        # For external device: use CN-based names (allows multiple devices)
+        # Sanitize CN for filename (replace special chars with underscore)
+        safe_cn = "".join(c if c.isalnum() or c in ('-', '_') else '_' for c in common_name)
+        client_key = certs_dir / f"client-{safe_cn}.key"
+        client_crt = certs_dir / f"client-{safe_cn}.crt"
+        client_csr = certs_dir / f"client-{safe_cn}.csr"
+    
+    # Check if CA exists
+    if not ca_crt.exists() or not ca_key.exists():
+        raise HTTPException(
+            status_code=400,
+            detail="CA certificate or key not found. Please ensure CA is properly configured.",
+        )
+    
+    try:
+        # Get broker host/IP for SAN (Subject Alternative Names)
+        # This allows devices to connect using IP address without certificate validation errors
+        from backend.config import get_mqtt_broker_host, get_local_ip
+        import socket
+        
+        broker_host = None
+        try:
+            # Try to get broker host from config (may be IP or hostname)
+            from backend.services.mqtt_config_service import mqtt_config_service
+            cfg = mqtt_config_service.load_config()
+            if cfg.builtin_broker_host and cfg.builtin_broker_host.strip():
+                broker_host = cfg.builtin_broker_host.strip()
+        except:
+            pass
+        
+        # If not set, try to get from environment or auto-detect
+        if not broker_host:
+            try:
+                broker_host = get_mqtt_broker_host()
+            except:
+                broker_host = get_local_ip()
+        
+        # Build SAN list: include IP addresses and hostnames
+        san_list = []
+        
+        # Add localhost for local connections
+        san_list.append("IP:127.0.0.1")
+        san_list.append("DNS:localhost")
+        
+        # Add broker host/IP
+        if broker_host:
+            try:
+                # Check if it's an IP address
+                socket.inet_aton(broker_host)
+                # It's an IP address
+                if broker_host not in ["127.0.0.1", "localhost"]:
+                    san_list.append(f"IP:{broker_host}")
+            except socket.error:
+                # It's a hostname, add as DNS
+                if broker_host not in ["localhost"]:
+                    san_list.append(f"DNS:{broker_host}")
+                    # Try to resolve hostname to IP
+                    try:
+                        resolved_ip = socket.gethostbyname(broker_host)
+                        if resolved_ip not in ["127.0.0.1"]:
+                            san_list.append(f"IP:{resolved_ip}")
+                    except:
+                        pass
+        
+        # Also add auto-detected local IP if different
+        try:
+            local_ip = get_local_ip()
+            if local_ip and local_ip not in ["127.0.0.1", "localhost"]:
+                # Check if already in list
+                if not any(f"IP:{local_ip}" in san for san in san_list):
+                    san_list.append(f"IP:{local_ip}")
+        except:
+            pass
+        
+        # Build SAN extension string
+        san_string = ",".join(san_list)
+        
+        # Generate client private key
+        subprocess.run(
+            [
+                "openssl", "genrsa",
+                "-out", str(client_key),
+                "2048",
+            ],
+            check=True,
+            capture_output=True,
+        )
+        client_key.chmod(0o600)
+        
+        # Generate client certificate signing request (CSR) with SAN extension
+        # Use OpenSSL config file to include SAN in CSR (compatible with all OpenSSL versions)
+        import tempfile
+        import os
+        
+        # Create temporary config file for CSR with SAN extension
+        # Use prompt = no to avoid interactive prompts
+        san_config_content = f"""[req]
+distinguished_name = req_distinguished_name
+req_extensions = v3_req
+prompt = no
+
+[req_distinguished_name]
+C = CN
+ST = Local
+L = Local
+O = Camthink
+OU = Dev
+CN = {common_name}
+
+[v3_req]
+subjectAltName = {san_string}
+"""
+        # Write config to a temporary file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.cnf', delete=False) as san_config_file:
+            san_config_file.write(san_config_content)
+            san_config_path = san_config_file.name
+        
+        try:
+            # Generate CSR with SAN extension included in the request
+            # Use -batch to avoid any interactive prompts (additional safety)
+            subprocess.run(
+                [
+                    "openssl", "req", "-new",
+                    "-key", str(client_key),
+                    "-out", str(client_csr),
+                    "-config", san_config_path,
+                    "-extensions", "v3_req",
+                    "-batch",  # Avoid interactive prompts
+                ],
+                check=True,
+                capture_output=True,
+                text=True,  # Capture text output for better error messages
+            )
+            
+            # Sign client certificate with CA
+            # The SAN extension is already in the CSR, so we just sign it normally
+            sign_cmd = [
+                "openssl", "x509", "-req",
+                "-days", str(days),
+                "-in", str(client_csr),
+                "-CA", str(ca_crt),
+                "-CAkey", str(ca_key),
+                "-CAcreateserial",
+                "-out", str(client_crt),
+            ]
+            
+            result = subprocess.run(
+                sign_cmd,
+                check=True,
+                capture_output=True,
+                text=True,  # Capture text output for better error messages
+            )
+            
+            # CRITICAL SECURITY CHECK: Verify the signed certificate was actually signed by the CA
+            # This ensures the certificate chain is valid and prevents using wrong CA
+            try:
+                verify_result = subprocess.run(
+                    ["openssl", "verify", "-CAfile", str(ca_crt), str(client_crt)],
+                    capture_output=True,
+                    text=True,
+                    check=False,  # Don't raise on non-zero exit, we'll check the output
+                )
+                if verify_result.returncode != 0:
+                    # Certificate verification failed - this should not happen if CA/key are correct
+                    logger.error(f"Generated certificate failed CA verification: {verify_result.stderr}")
+                    # Delete the invalid certificate
+                    if client_crt.exists():
+                        client_crt.unlink()
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Generated certificate failed CA verification. This may indicate CA certificate/key mismatch or corruption."
+                    )
+                logger.debug(f"Certificate verification passed: {verify_result.stdout.strip()}")
+            except FileNotFoundError:
+                logger.warning("OpenSSL verify not available, skipping certificate verification")
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.warning(f"Certificate verification check failed: {e}. Certificate generated but verification skipped.")
+        finally:
+            # Clean up temporary config file
+            try:
+                os.unlink(san_config_path)
+            except:
+                pass
+        
+        # Add certificate to CA database for CRL support
+        # This allows the certificate to be properly revoked later
+        try:
+            _add_certificate_to_ca_database(client_crt, certs_dir, common_name)
+        except Exception as e:
+            logger.warning(f"Failed to add certificate to CA database: {e}. Certificate generated but may not be revocable.")
+        
+        # If this is for an external device (not AIToolStack), add the CN as a user in password file
+        # This is required when use_identity_as_username is enabled - only users in password file can connect
+        if not for_aitoolstack:
+            _add_device_to_password_file(common_name)
+        
+        # Update config to reference the generated client cert/key (only if for AIToolStack)
+        if for_aitoolstack:
+            cfg = mqtt_config_service.load_config()
+            # Note: builtin_tls_client_cert_path/key_path are no longer used - AIToolStack always uses default client certs
+            # The generated certificate is saved to the default location (/mosquitto/config/certs/client.crt/key)
+            # No need to persist paths in config
+        
+        logger.info(f"Generated client certificate: CN={common_name}, valid for {days} days, for_aitoolstack={for_aitoolstack}")
+        
+        result = {
+            "success": True,
+            "message": f"Client certificate generated successfully (CN: {common_name})",
+            "client_cert_path": str(client_crt),
+            "client_key_path": str(client_key),
+            "ca_cert_path": str(ca_crt),
+            "for_aitoolstack": for_aitoolstack,
+        }
+        
+        # If for external device, provide download URLs
+        if not for_aitoolstack:
+            result["download_cert_url"] = f"/system/mqtt/tls/device-cert/{common_name}"
+            result["download_key_url"] = f"/system/mqtt/tls/device-key/{common_name}"
+        
+        return result
+    except subprocess.CalledProcessError as e:
+        # With text=True, stderr is already a string
+        error_msg = e.stderr if e.stderr else (e.stdout if e.stdout else str(e))
+        logger.error(f"Failed to generate client certificate: {error_msg}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate client certificate: {error_msg}",
+        )
+    except Exception as e:
+        logger.error(f"Error generating client certificate: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error generating client certificate: {e}")
+
+
+# ========== External MQTT Brokers Management ==========
+
+@router.get("/system/mqtt/external-brokers", response_model=List[ExternalBrokerResponse])
+def get_external_brokers():
+    """Get all external MQTT brokers with connection status"""
+    brokers = external_broker_service.get_all()
+    
+    # Get connection status from MQTT service
+    try:
+        service_status = mqtt_service.get_status()
+        brokers_info = service_status.get("brokers", [])
+        
+        # Create a map of broker_id -> connected status for external brokers
+        # Also create a fallback map of (host, port) -> connected status
+        connection_map_by_id = {}
+        connection_map_by_addr = {}
+        for broker_info in brokers_info:
+            if broker_info.get("type") == "external":
+                broker_id = broker_info.get("broker_id")
+                host = broker_info.get("host")
+                port = broker_info.get("port")
+                connected = broker_info.get("connected", False)
+                
+                if broker_id is not None:
+                    connection_map_by_id[broker_id] = connected
+                if host and port:
+                    connection_map_by_addr[(host, port)] = connected
+        
+        # Add connection status to each broker
+        for broker in brokers:
+            if not broker.enabled:
+                broker.connected = None
+            else:
+                # Try to match by broker_id first, then by (host, port)
+                if broker.id in connection_map_by_id:
+                    broker.connected = connection_map_by_id[broker.id]
+                else:
+                    key = (broker.host, broker.port)
+                    broker.connected = connection_map_by_addr.get(key, False)
+    except Exception as e:
+        logger.warning(f"Failed to get connection status for external brokers: {e}")
+        # If status fetch fails, set all to None (unknown)
+        for broker in brokers:
+            broker.connected = None
+    
+    return brokers
+
+
+@router.get("/system/mqtt/external-brokers/{broker_id}", response_model=ExternalBrokerResponse)
+def get_external_broker(broker_id: int):
+    """Get a specific external MQTT broker by ID"""
+    broker = external_broker_service.get_by_id(broker_id)
+    if not broker:
+        raise HTTPException(status_code=404, detail=f"External broker with ID {broker_id} not found")
+    return broker
+
+
+@router.post("/system/mqtt/external-brokers", response_model=ExternalBrokerResponse)
+def create_external_broker(broker: ExternalBrokerCreate):
+    """Create a new external MQTT broker (connection test should be done before calling this)"""
+    # Verify connection before creating
+    import socket
+    import time
+    import ssl
+    import paho.mqtt.client as mqtt
+    import uuid
+    
+    try:
+        # Test TCP connection first
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        result = sock.connect_ex((broker.host, broker.port))
+        sock.close()
+        
+        if result != 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot connect to {broker.host}:{broker.port}, please check if the address and port are correct"
+            )
+        
+        # Test MQTT connection
+        test_client = None
+        connection_result = {"success": False, "message": ""}
+        
+        def on_connect_test(client, userdata, flags, rc):
+            if rc == 0:
+                connection_result["success"] = True
+                connection_result["message"] = "Connection successful"
+            else:
+                error_messages = {
+                    1: "Incorrect protocol version",
+                    2: "Invalid client identifier",
+                    3: "Server unavailable",
+                    4: "Bad username or password",
+                    5: "Not authorized"
+                }
+                connection_result["message"] = error_messages.get(rc, f"Connection failed (error code: {rc})")
+            client.disconnect()
+        
+        def on_disconnect_test(client, userdata, rc):
+            pass
+        
+        # Create test client
+        client_id = f"test_client_{uuid.uuid4().hex[:8]}"
+        test_client = mqtt.Client(
+            client_id=client_id,
+            protocol=mqtt.MQTTv311,
+            clean_session=True
+        )
+        
+        # Set authentication if provided
+        if broker.username and broker.password:
+            test_client.username_pw_set(broker.username, broker.password)
+        
+        # Configure TLS if needed
+        if broker.protocol == "mqtts":
+            tls_kwargs = {}
+            if broker.tls_ca_cert_path:
+                tls_kwargs["ca_certs"] = broker.tls_ca_cert_path
+            if broker.tls_client_cert_path and broker.tls_client_key_path:
+                tls_kwargs["certfile"] = broker.tls_client_cert_path
+                tls_kwargs["keyfile"] = broker.tls_client_key_path
+            
+            if tls_kwargs:
+                tls_kwargs["tls_version"] = ssl.PROTOCOL_TLSv1_2
+                test_client.tls_set(**tls_kwargs)
+            # AIToolStack as client should always verify server certificate
+            # AIToolStack as client should always verify server certificate (tls_insecure_skip_verify is not applicable)
+            test_client.tls_insecure_set(False)
+        
+        # Set callbacks
+        test_client.on_connect = on_connect_test
+        test_client.on_disconnect = on_disconnect_test
+        
+        # Set connection timeout
+        test_client.connect(broker.host, broker.port, keepalive=broker.keepalive or 60)
+        
+        # Wait for connection (with timeout)
+        start_time = time.time()
+        timeout = 10  # 10 seconds timeout
+        test_client.loop_start()
+        
+        while time.time() - start_time < timeout:
+            if connection_result["success"] or connection_result["message"]:
+                break
+            time.sleep(0.1)
+        
+        test_client.loop_stop()
+        
+        if not connection_result["success"]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"MQTT 连接测试失败：{connection_result.get('message', '连接超时')}。只有连接成功才能添加 Broker。"
+            )
+    except HTTPException:
+        raise
+    except socket.timeout:
+        raise HTTPException(
+            status_code=400,
+            detail=f"连接超时：无法在 5 秒内连接到 {broker.host}:{broker.port}"
+        )
+    except socket.gaierror as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"无法解析主机名 {broker.host}：{str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Connection test failed during broker creation: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=400,
+            detail=f"连接测试失败：{str(e)}。只有连接成功才能添加 Broker。"
+        )
+    
+    # Connection test passed, create the broker
+    try:
+        created = external_broker_service.create(broker)
+        # Reload MQTT connections to include the new broker
+        try:
+            mqtt_service.reload_and_reconnect()
+        except Exception as e:
+            logger.warning(f"Failed to reconnect MQTT clients after creating broker: {e}")
+        return created
+    except Exception as e:
+        logger.error(f"Failed to create external broker: {e}", exc_info=True)
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/system/mqtt/external-brokers/{broker_id}", response_model=ExternalBrokerResponse)
+def update_external_broker(broker_id: int, broker: ExternalBrokerUpdate):
+    """Update an existing external MQTT broker"""
+    updated = external_broker_service.update(broker_id, broker)
+    if not updated:
+        raise HTTPException(status_code=404, detail=f"External broker with ID {broker_id} not found")
+    # Reload MQTT connections to apply changes
+    try:
+        mqtt_service.reload_and_reconnect()
+    except Exception as e:
+        logger.warning(f"Failed to reconnect MQTT clients after updating broker: {e}")
+    return updated
+
+
+@router.delete("/system/mqtt/external-brokers/{broker_id}")
+def delete_external_broker(broker_id: int):
+    """Delete an external MQTT broker"""
+    success = external_broker_service.delete(broker_id)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"External broker with ID {broker_id} not found")
+    # Reload MQTT connections to remove the deleted broker
+    try:
+        mqtt_service.reload_and_reconnect()
+    except Exception as e:
+        logger.warning(f"Failed to reconnect MQTT clients after deleting broker: {e}")
+    return {"message": f"External broker {broker_id} deleted successfully"}
+
+
+@router.post("/system/mqtt/external-brokers/test")
+def test_external_broker_connection(broker: ExternalBrokerCreate):
+    """Test connection to an external MQTT broker before adding/updating"""
+    import socket
+    import time
+    import ssl
+    import paho.mqtt.client as mqtt
+    import uuid
+    
+    try:
+        # First, test TCP connection
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        result = sock.connect_ex((broker.host, broker.port))
+        sock.close()
+        
+        if result != 0:
+            return {
+                "success": False,
+                "message": f"Cannot connect to {broker.host}:{broker.port}",
+                "error": f"TCP connection failed (error code: {result})"
+            }
+        
+        # Try MQTT connection
+        test_client = None
+        connection_result = {"success": False, "message": ""}
+        
+        def on_connect_test(client, userdata, flags, rc):
+            if rc == 0:
+                connection_result["success"] = True
+                connection_result["message"] = "Connection successful"
+            else:
+                error_messages = {
+                    1: "Incorrect protocol version",
+                    2: "Invalid client identifier",
+                    3: "Server unavailable",
+                    4: "Bad username or password",
+                    5: "Not authorized"
+                }
+                connection_result["message"] = error_messages.get(rc, f"Connection failed (error code: {rc})")
+            client.disconnect()
+        
+        def on_disconnect_test(client, userdata, rc):
+            pass
+        
+        # Create test client
+        client_id = f"test_client_{uuid.uuid4().hex[:8]}"
+        test_client = mqtt.Client(
+            client_id=client_id,
+            protocol=mqtt.MQTTv311,
+            clean_session=True
+        )
+        
+        # Set authentication if provided
+        if broker.username and broker.password:
+            test_client.username_pw_set(broker.username, broker.password)
+        
+        # Configure TLS if needed
+        if broker.protocol == "mqtts":
+            tls_kwargs = {}
+            if broker.tls_ca_cert_path:
+                tls_kwargs["ca_certs"] = broker.tls_ca_cert_path
+            if broker.tls_client_cert_path and broker.tls_client_key_path:
+                tls_kwargs["certfile"] = broker.tls_client_cert_path
+                tls_kwargs["keyfile"] = broker.tls_client_key_path
+            
+            if tls_kwargs:
+                tls_kwargs["tls_version"] = ssl.PROTOCOL_TLSv1_2
+                test_client.tls_set(**tls_kwargs)
+            # AIToolStack as client should always verify server certificate
+            # AIToolStack as client should always verify server certificate (tls_insecure_skip_verify is not applicable)
+            test_client.tls_insecure_set(False)
+        
+        # Set callbacks
+        test_client.on_connect = on_connect_test
+        test_client.on_disconnect = on_disconnect_test
+        
+        # Set connection timeout
+        test_client.connect(broker.host, broker.port, keepalive=broker.keepalive or 60)
+        
+        # Wait for connection (with timeout)
+        start_time = time.time()
+        timeout = 10  # 10 seconds timeout
+        test_client.loop_start()
+        
+        while time.time() - start_time < timeout:
+            if connection_result["success"] or connection_result["message"]:
+                break
+            time.sleep(0.1)
+        
+        test_client.loop_stop()
+        
+        if connection_result["success"]:
+            return {
+                "success": True,
+                "message": f"成功连接到 {broker.host}:{broker.port}",
+            }
+        else:
+            return {
+                "success": False,
+                "message": connection_result.get("message", "连接超时"),
+                "error": connection_result.get("message", "Connection timeout")
+            }
+            
+    except socket.timeout:
+        return {
+            "success": False,
+            "message": f"连接超时：无法在 5 秒内连接到 {broker.host}:{broker.port}",
+            "error": "Connection timeout"
+        }
+    except socket.gaierror as e:
+        return {
+            "success": False,
+            "message": f"无法解析主机名 {broker.host}",
+            "error": f"DNS resolution failed: {str(e)}"
+        }
+    except Exception as e:
+        logger.error(f"Failed to test external broker connection: {e}", exc_info=True)
+        return {
+            "success": False,
+            "message": f"连接测试失败: {str(e)}",
+            "error": str(e)
+        }
 
 
 @router.post("/mqtt/test")
 def test_mqtt_connection():
     """Test MQTT connection"""
-    if not settings.MQTT_ENABLED:
+    cfg: MQTTConfig = mqtt_config_service.load_config()
+
+    if not cfg.enabled:
         return {
             "success": False,
             "message": "MQTT service is disabled",
-            "error": "MQTT_ENABLED is False"
+            "error": "MQTT_ENABLED is False",
         }
     
     import socket
@@ -4057,13 +6853,15 @@ def test_mqtt_connection():
     try:
         from backend.config import get_local_ip
         
-        # Determine Broker address to test
-        if settings.MQTT_USE_BUILTIN_BROKER:
+        # Determine Broker address to test based on runtime config
+        if cfg.mode == "builtin":
             broker_host = get_local_ip()
-            broker_port = settings.MQTT_BUILTIN_PORT
+            broker_port = cfg.builtin_tcp_port or settings.MQTT_BUILTIN_PORT
+            broker_type = "builtin"
         else:
-            broker_host = settings.MQTT_BROKER
-            broker_port = settings.MQTT_PORT
+            broker_host = cfg.host or settings.MQTT_BROKER
+            broker_port = cfg.port or settings.MQTT_PORT
+            broker_type = "external"
         
         # Test TCP connection
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -4100,10 +6898,15 @@ def test_mqtt_connection():
                 test_client.on_connect = on_connect_test
                 test_client.on_connect_fail = on_connect_fail_test
                 
-                # Built-in Broker does not require authentication, external Broker does
-                if not settings.MQTT_USE_BUILTIN_BROKER:
-                    if settings.MQTT_USERNAME and settings.MQTT_PASSWORD:
-                        test_client.username_pw_set(settings.MQTT_USERNAME, settings.MQTT_PASSWORD)
+                # Set authentication based on broker type
+                if broker_type == "builtin":
+                    # Built-in Broker authentication (if anonymous is disabled)
+                    if not cfg.builtin_allow_anonymous and cfg.builtin_username and cfg.builtin_password:
+                        test_client.username_pw_set(cfg.builtin_username, cfg.builtin_password)
+                elif broker_type == "external":
+                    # External Broker authentication
+                    if cfg.username and cfg.password:
+                        test_client.username_pw_set(cfg.username, cfg.password)
                 
                 test_client.connect(broker_host, broker_port, keepalive=5)
                 test_client.loop_start()
@@ -4125,7 +6928,7 @@ def test_mqtt_connection():
                     "success": connection_result["success"],
                     "message": connection_result["message"],
                     "broker": f"{broker_host}:{broker_port}",
-                    "broker_type": "builtin" if settings.MQTT_USE_BUILTIN_BROKER else "external",
+                    "broker_type": broker_type,
                     "tcp_connected": True
                 }
             except Exception as e:
@@ -4139,7 +6942,7 @@ def test_mqtt_connection():
                     "success": False,
                     "message": f"MQTT connection test failed: {str(e)}",
                     "broker": f"{broker_host}:{broker_port}",
-                    "broker_type": "builtin" if settings.MQTT_USE_BUILTIN_BROKER else "external",
+                    "broker_type": broker_type,
                     "tcp_connected": True
                 }
         else:
@@ -4168,7 +6971,7 @@ def test_mqtt_connection():
                 "message": error_msg,
                 "detail": error_detail,
                 "broker": f"{broker_host}:{broker_port}",
-                "broker_type": "builtin" if settings.MQTT_USE_BUILTIN_BROKER else "external",
+                "broker_type": broker_type,
                 "tcp_connected": False,
                 "error": "TCP connection failed",
                 "error_code": result
@@ -4177,7 +6980,7 @@ def test_mqtt_connection():
         return {
             "success": False,
             "message": f"Cannot resolve MQTT Broker address: {str(e)}",
-            "broker": f"{settings.MQTT_BROKER}:{settings.MQTT_PORT}",
+            "broker": f"{cfg.host or settings.MQTT_BROKER}:{cfg.port or settings.MQTT_PORT}",
             "tcp_connected": False,
             "error": "DNS resolution failed"
         }
@@ -4185,8 +6988,421 @@ def test_mqtt_connection():
         return {
             "success": False,
             "message": f"Connection test failed: {str(e)}",
-            "broker": f"{settings.MQTT_BROKER}:{settings.MQTT_PORT}",
+            "broker": f"{cfg.host or settings.MQTT_BROKER}:{cfg.port or settings.MQTT_PORT}",
             "tcp_connected": False,
             "error": str(e)
     }
+
+
+@router.get("/device/bootstrap")
+def get_device_bootstrap(request: Request):
+    """Provide device-side bootstrap info for MQTT connection.
+
+    Backward compatible:
+    - `broker_host` / `broker_port` / `broker_type` keep current meaning: the *preferred*
+      broker according to current runtime config.
+    - New fields `builtin_broker` and `external_broker` (when available) expose
+      detailed information for multiple MQTT Brokers where the same application
+      protocol is supported, so devices can choose the most convenient one
+      (e.g. local vs cloud) while still speaking the same topic/payload format.
+    """
+    from backend.config import get_mqtt_broker_host
+
+    cfg: MQTTConfig = mqtt_config_service.load_config()
+    server_ip = get_mqtt_broker_host(request)
+
+    # Preferred broker for backward compatibility (single entry)
+    # Default to built-in broker, use external if external is enabled and configured
+    if cfg.external_enabled and (cfg.external_host or cfg.external_port):
+        preferred_broker_host = cfg.external_host or server_ip
+        preferred_broker_port = cfg.external_port or settings.MQTT_PORT
+        preferred_broker_type = "external"
+    else:
+        preferred_broker_host = server_ip
+        preferred_broker_port = cfg.builtin_tcp_port or settings.MQTT_BUILTIN_PORT
+        preferred_broker_type = "builtin"
+
+    # Built-in broker information
+    builtin_broker = {
+        "enabled": bool(cfg.enabled),
+        "host": server_ip,
+        "port": cfg.builtin_tcp_port or settings.MQTT_BUILTIN_PORT,
+        "protocol": cfg.builtin_protocol,
+    }
+
+    # External broker information (only when explicitly enabled and configured)
+    external_broker = None
+    if cfg.external_enabled and (cfg.external_host or cfg.external_port):
+        external_broker = {
+            "enabled": bool(cfg.enabled and cfg.external_enabled),
+            "host": cfg.external_host or server_ip,
+            "port": cfg.external_port or settings.MQTT_PORT,
+            "protocol": cfg.external_protocol,
+            "username": cfg.external_username,
+            "password": None,  # Never expose password to devices in bootstrap
+        }
+
+    payload = {
+        "enabled": cfg.enabled,
+        "mode": preferred_broker_type,  # For backward compatibility, use preferred broker type
+        "protocol": cfg.builtin_protocol,  # Use builtin protocol as default for backward compatibility
+        # Preferred broker (for backward compatibility with existing devices)
+        "broker_type": preferred_broker_type,
+        "broker_host": preferred_broker_host,
+        "broker_port": preferred_broker_port,
+        # Rich multi-broker info (for newer devices / tooling)
+        "builtin_broker": builtin_broker,
+        "external_broker": external_broker,
+        "upload_topic_format": settings.MQTT_UPLOAD_TOPIC,
+        "response_topic_prefix": settings.MQTT_RESPONSE_TOPIC_PREFIX,
+        "server_ip": server_ip,
+        "server_port": settings.PORT,
+    }
+
+    return payload
+
+
+# ========== Device Management ==========
+
+@router.get("/devices", response_model=List[DeviceOut])
+def list_devices(db: Session = Depends(get_db)):
+    """List all devices that have reported data or been registered."""
+    from backend.models.database import DeviceReport
+    
+    # Query devices with their latest report time
+    devices = (
+        db.query(Device)
+        .order_by(Device.created_at.desc())
+        .all()
+    )
+    
+    # For each device, get the latest report time
+    result = []
+    for device in devices:
+        # Get the latest report time for this device
+        latest_report = (
+            db.query(DeviceReport)
+            .filter(DeviceReport.device_id == device.id)
+            .order_by(DeviceReport.created_at.desc())
+            .first()
+        )
+        
+        # Create DeviceOut with last_seen from latest report if available
+        device_out = DeviceOut.from_orm_device(device)
+        if latest_report:
+            device_out.last_seen = latest_report.created_at
+        result.append(device_out)
+    
+    return result
+
+
+@router.get("/devices/{device_id}", response_model=DeviceOut)
+def get_device(device_id: str, db: Session = Depends(get_db)):
+    """Get device details by id."""
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    return DeviceOut.from_orm_device(device)
+
+
+class DeviceUpdate(BaseModel):
+    """Device update request model"""
+    name: Optional[str] = None
+
+
+@router.patch("/devices/{device_id}", response_model=DeviceOut)
+def update_device(
+    device_id: str,
+    payload: DeviceUpdate,
+    db: Session = Depends(get_db),
+):
+    """Update device information.
+    
+    - Currently supports updating device name.
+    - Manually set names will be preserved and not overwritten by device reports.
+    """
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    # Update name if provided
+    if payload.name is not None:
+        # Set name to None if empty string, otherwise use the provided name
+        device.name = payload.name.strip() if payload.name and payload.name.strip() else None
+        # Mark that this is a manually set name by storing a flag in extra_info
+        # This flag will be checked in _upsert_device_from_payload to prevent overwriting
+        if device.extra_info:
+            try:
+                extra_info = json.loads(device.extra_info)
+            except (json.JSONDecodeError, TypeError):
+                extra_info = {}
+        else:
+            extra_info = {}
+        extra_info['name_manually_set'] = True
+        device.extra_info = json.dumps(extra_info)
+    
+    db.commit()
+    db.refresh(device)
+    logger.info(f"Device {device_id} updated: name={device.name}")
+    return DeviceOut.from_orm_device(device)
+
+
+@router.post("/devices", response_model=DeviceWithTopic)
+def create_device(payload: DeviceCreate, db: Session = Depends(get_db)):
+    """Manually create/register a device.
+
+    - System will auto-generate a unique device_id.
+    - Returns the MQTT uplink topic so that user can configure the device.
+    - Optionally bind the device to one or more projects at creation time.
+    """
+    # Generate a short unique device ID (8-character hex string)
+    # Example: "a1b2c3d4"
+    # Ensure no collision in the devices table.
+    while True:
+        candidate = uuid.uuid4().hex[:8]
+        existing = db.query(Device).filter(Device.id == candidate).first()
+        if not existing:
+            device_id = candidate
+            break
+    now = datetime.utcnow()
+
+    # Prepare extra_info with name_manually_set flag if name is provided
+    extra_info_dict = {}
+    if payload.extra_info:
+        try:
+            extra_info_dict = json.loads(payload.extra_info)
+        except (json.JSONDecodeError, TypeError):
+            extra_info_dict = {}
+    
+    # Mark name as manually set if user provided a name
+    if payload.name and payload.name.strip():
+        extra_info_dict['name_manually_set'] = True
+    
+    extra_info_str = json.dumps(extra_info_dict) if extra_info_dict else None
+
+    # Create device ORM instance
+    device = Device(
+        id=device_id,
+        name=payload.name or device_id,
+        type=payload.type or "Other",
+        model=payload.model,
+        serial_number=payload.serial_number,
+        mac_address=payload.mac_address,
+        status="offline",
+        last_seen=None,
+        last_ip=None,
+        firmware_version=None,
+        hardware_version=None,
+        power_supply_type=None,
+        last_report=None,
+        extra_info=extra_info_str,
+    )
+
+    # Optional: bind to projects
+    if payload.project_ids:
+        projects = (
+            db.query(Project)
+            .filter(Project.id.in_(payload.project_ids))
+            .all()
+        )
+        if projects:
+            device.projects = projects
+
+    db.add(device)
+    db.commit()
+    db.refresh(device)
+
+    uplink_topic = f"device/{device_id}/uplink"
+
+    base_out = DeviceOut.from_orm_device(device)
+    return DeviceWithTopic(**base_out.dict(), uplink_topic=uplink_topic)
+
+
+@router.post("/devices/{device_id}/bind-project", response_model=DeviceOut)
+def bind_device_project(
+    device_id: str,
+    payload: DeviceBindProjectRequest,
+    db: Session = Depends(get_db),
+):
+    """Bind a device to a project (supports multiple projects).
+
+    - Device can be bound to multiple projects simultaneously.
+    - If device is already bound to the project, this is a no-op.
+    """
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    project = db.query(Project).filter(Project.id == payload.project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Add project to device's projects if not already bound
+    if project not in device.projects:
+        device.projects.append(project)
+        db.commit()
+        logger.info(f"Device {device_id} bound to project {payload.project_id}")
+    else:
+        logger.info(f"Device {device_id} already bound to project {payload.project_id}")
+
+    db.refresh(device)
+    return DeviceOut.from_orm_device(device)
+
+
+@router.post("/devices/{device_id}/unbind-project", response_model=DeviceOut)
+def unbind_device_project(
+    device_id: str,
+    payload: DeviceUnbindProjectRequest,
+    db: Session = Depends(get_db),
+):
+    """Unbind a device from a project.
+
+    - Removes the binding between device and project.
+    - If device is not bound to the project, this is a no-op.
+    """
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    project = db.query(Project).filter(Project.id == payload.project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Remove project from device's projects if bound
+    if project in device.projects:
+        device.projects.remove(project)
+        db.commit()
+        logger.info(f"Device {device_id} unbound from project {payload.project_id}")
+    else:
+        logger.info(f"Device {device_id} not bound to project {payload.project_id}")
+
+    db.refresh(device)
+    return DeviceOut.from_orm_device(device)
+
+
+@router.get("/projects/{project_id}/devices", response_model=List[DeviceOut])
+def list_project_devices(project_id: str, db: Session = Depends(get_db)):
+    """List all devices bound to a specific project."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    devices = project.devices if project.devices else []
+    return [DeviceOut.from_orm_device(d) for d in devices]
+
+
+class DeviceReportOut(BaseModel):
+    """Device report response model"""
+    id: int
+    device_id: str
+    report_data: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+@router.get("/devices/{device_id}/reports", response_model=List[DeviceReportOut])
+def list_device_reports(
+    device_id: str,
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db)
+):
+    """List device report history with pagination."""
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    reports = (
+        db.query(DeviceReport)
+        .filter(DeviceReport.device_id == device_id)
+        .order_by(DeviceReport.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return reports
+
+
+@router.delete("/devices/{device_id}")
+def delete_device(device_id: str, db: Session = Depends(get_db)):
+    """Delete a device, all its reports, and associated certificate if exists."""
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    # Delete associated device certificate if exists
+    # Device certificates use device_id as common_name (CN)
+    try:
+        from pathlib import Path
+        from urllib.parse import unquote
+        
+        safe_cn = "".join(c if c.isalnum() or c in ('-', '_') else '_' for c in unquote(device_id))
+        certs_dir = Path("/mosquitto/config/certs")
+        
+        cert_path = certs_dir / f"client-{safe_cn}.crt"
+        key_path = certs_dir / f"client-{safe_cn}.key"
+        csr_path = certs_dir / f"client-{safe_cn}.csr"
+        
+        # Check if certificate exists
+        if cert_path.exists():
+            # Read certificate content before deletion (needed for CRL)
+            cert_content = cert_path.read_bytes()
+            
+            # Remove device CN from password file (required when use_identity_as_username is enabled)
+            _remove_device_from_password_file(device_id)
+            
+            # Delete certificate files
+            deleted_files = []
+            if cert_path.exists():
+                cert_path.unlink()
+                deleted_files.append(str(cert_path))
+            if key_path.exists():
+                key_path.unlink()
+                deleted_files.append(str(key_path))
+            if csr_path.exists():
+                csr_path.unlink()
+                deleted_files.append(str(csr_path))
+            
+            logger.info(f"Deleted certificate files for device {device_id}: {deleted_files}")
+            
+            # Add certificate to CRL for immediate revocation
+            if cert_content:
+                try:
+                    _add_certificate_to_crl(cert_content, certs_dir)
+                    logger.info(f"Added certificate for device '{device_id}' to CRL")
+                except Exception as e:
+                    logger.warning(f"Failed to add certificate to CRL: {e}. Certificate deleted but may still be usable until Mosquitto restart.")
+            
+            # Update mosquitto.conf to include crlfile if mTLS is enabled and CRL is valid
+            try:
+                cfg = mqtt_config_service.load_config()
+                if cfg.builtin_protocol == "mqtts" and cfg.builtin_tls_require_client_cert:
+                    crl_file = Path("/mosquitto/config/certs/revoked.crl")
+                    if _is_valid_crl_file(crl_file):
+                        _ensure_crlfile_in_mosquitto_conf()
+                        # Restart Mosquitto to apply CRL changes (CRL cannot be reloaded via SIGHUP)
+                        try:
+                            import subprocess
+                            subprocess.run(
+                                ["docker", "restart", "camthink-mosquitto"],
+                                check=True,
+                                timeout=30,
+                            )
+                            logger.info("Mosquitto restarted to apply CRL changes after device deletion")
+                        except Exception as e:
+                            logger.warning(f"Failed to restart Mosquitto after certificate deletion: {e}")
+            except Exception as e:
+                logger.warning(f"Failed to update mosquitto.conf with CRL: {e}")
+    except Exception as e:
+        # Log error but don't fail device deletion if certificate deletion fails
+        logger.warning(f"Failed to delete certificate for device {device_id}: {e}")
+    
+    # Delete device (cascade will delete all reports due to relationship)
+    db.delete(device)
+    db.commit()
+    logger.info(f"Device {device_id} deleted")
+    
+    return {"message": "Device deleted successfully"}
 

@@ -30,7 +30,6 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--spacing-md);
-  margin-bottom: var(--spacing-lg);
 }
 
 .ui-dialog-title {
@@ -69,7 +68,9 @@
   display: flex;
   justify-content: flex-end;
   gap: var(--spacing-md);
-  margin-top: var(--spacing-lg);
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-top: 1px solid var(--border-color);
+  margin-top: 0; /* Remove default margin, use padding instead */
 }
 
 .ui-form-stack {
@@ -203,7 +204,7 @@
 }
 
 .alert-footer {
-  padding: var(--spacing-md) var(--spacing-lg);
+  padding: var(--spacing-lg) var(--spacing-lg);
   border-top: 1px solid var(--border-color);
   display: flex;
   justify-content: flex-end;
@@ -303,7 +304,7 @@
 }
 
 .confirm-footer {
-  padding: var(--spacing-md) var(--spacing-lg);
+  padding: var(--spacing-lg) var(--spacing-lg);
   border-top: 1px solid var(--border-color);
   display: flex;
   justify-content: flex-end;

@@ -1920,6 +1920,7 @@ def export_tflite_model(
                     "quantization_output_type": "int8",
                     "calib_dataset_path": str(calib_dir.resolve()),
                     "export_path": str((quant_workdir / "quantized_models").resolve()),
+                    "max_calib_images": 200,  # Limit calibration images to prevent memory issues
                 },
                 "pre_processing": {"rescaling": {"scale": 255, "offset": 0}},
             }
@@ -2917,6 +2918,7 @@ async def quantize_model_to_ne301(
                 "quantization_output_type": "int8",
                 "calib_dataset_path": str(calib_dir.resolve()),
                 "export_path": str((quant_workdir / "quantized_models").resolve()),
+                "max_calib_images": 200,  # Limit calibration images to prevent memory issues
             },
             "pre_processing": {"rescaling": {"scale": 255, "offset": 0}},
         }
